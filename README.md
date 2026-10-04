@@ -4,6 +4,15 @@
 
 本项目研究由前视 RGB 图像、自然语言指令和有限历史信息驱动的策略，使其直接预测底盘线速度、角速度与停止决策。项目不把 VLN 简化为 Nav2 目标点或路径生成器。
 
+## 研究分支与仓库边界
+
+本仓库探索两条端到端 VLN 研究分支：
+
+- `3dgs-vln`：3D Gaussian Splatting 与 VLN，研究语言条件空间记忆如何支持直接连续控制。
+- `spatial-intelligence-reasoning`：受 Fei-Fei Li 启发的空间智能与空间推理，研究有限自我中心观测下的端到端 VLN 决策。
+
+拓扑图/航点方向维护在独立仓库 `ETPNav-MID360`；前视 RGB-LiDAR 方向维护在独立仓库 `FrontRGB-LiDAR-VLN`。
+
 ## 当前状态
 
 - 研究阶段：v0.2 控制链与接口实现，模型仍为 mock/DoorNav 工程基线
