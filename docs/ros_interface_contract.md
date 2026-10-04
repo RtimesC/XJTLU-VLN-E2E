@@ -10,7 +10,7 @@
 
 本契约定义 VLN 策略、ROS 运行时、安全层、车辆控制仲裁器和离线评测之间的稳定边界。接口设计必须同时支持在线运行、rosbag 回放、shadow mode 和实验复现。
 
-本契约只定义 VLN 侧候选动作。最终车辆控制权、底盘串口和 STM32 固件由原车仓库负责。
+本契约定义 VLN 侧候选动作、安全处理和最终命令边界。底盘执行器、串口传输和 STM32 固件属于契约外部实现，不进入 VLN 策略研究范围。
 
 ## 2. 节点职责
 
@@ -21,8 +21,8 @@
 | `vln_safety_node` | VLN | 限幅、加速度约束、超时和紧急停车 | 自动选择绕障方向 |
 | `vln_episode_manager` | VLN | episode 生命周期、指令与结果记录 | 根据真实位置替模型触发正常停止 |
 | `vln_evaluator` | VLN | 使用真值计算指标 | 向在线策略回传真值或导航提示 |
-| `command_arbiter` | 原车 | VLN、Nav2、遥控和急停之间的唯一控制权仲裁 | 同时放行多个控制源 |
-| `serial_twistctl_node` | 原车 | 将最终 `/cmd_vel` 转发至 STM32 | 解释语言或修改导航策略 |
+| `command_arbiter` | 外部执行系统 | VLN、Nav2、遥控和急停之间的唯一控制权仲裁 | 同时放行多个控制源 |
+| `serial_twistctl_node` | 外部执行系统 | 将最终 `/cmd_vel` 转发至底盘执行器 | 解释语言或修改导航策略 |
 
 ## 3. 命名空间与主数据流
 
@@ -159,7 +159,7 @@ float32 latest_stop_probability
 | `/vln/raw_cmd_vel` | `vln_interfaces/msg/VlnCommand` | adapter | safety、logger | Reliable、Keep Last 1 |
 | `/vln/safe_cmd_vel` | `vln_interfaces/msg/VlnCommand` | safety | arbiter、logger | Reliable、Keep Last 1 |
 | `/vln/safety_status` | `vln_interfaces/msg/SafetyStatus` | safety | episode manager、logger | Reliable、Keep Last 20 |
-| `/cmd_vel` | `geometry_msgs/msg/Twist` | 原车 arbiter | serial bridge、logger | 服从原车契约 |
+| `/cmd_vel` | `geometry_msgs/msg/Twist` | 外部控制仲裁器 | 外部底盘适配器、logger | 服从外部执行接口契约 |
 
 ROS 2 QoS 的具体 deadline 和 liveliness 参数需通过 Jetson 与实际相机测试确认，但任何实现都必须保持队列有界，避免积压旧图像或旧动作。
 
@@ -174,7 +174,7 @@ ROS 2 QoS 的具体 deadline 和 liveliness 参数需通过 Jetson 与实际相�
 - 不得通过高频重发改变原始动作时间戳；
 - 超时判断必须依据原始观测时间和本机单调时钟状态，而不是只看最近一次重发时间。
 
-最终 `/cmd_vel` 因现有底盘接口使用未带时间戳的 `geometry_msgs/msg/Twist`，由车辆级仲裁器在最后一步转换。
+最终 `/cmd_vel` 因底盘接口使用未带时间戳的 `geometry_msgs/msg/Twist`，由外部控制仲裁器在最后一步转换。
 
 ## 7. 时间同步与动作新鲜度
 
@@ -280,4 +280,4 @@ FAST-LIO2、TF、RTK、雷达真值和目标区域信息可以由 `vln_evaluator
 - 控制权所有者改变；
 - 新增进入主策略的信息源。
 
-每次实车实验必须保存本仓库 commit、原车仓库 commit、消息接口版本和模型版本。不得只记录分支名。
+每次实车实验必须保存本仓库 commit、外部执行接口版本、消息接口版本和模型版本。不得只记录分支名。

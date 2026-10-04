@@ -121,7 +121,7 @@ a_t = (v_t, omega_t, p_stop_t)
 至少保留以下可比较系统：
 
 1. `VLN-E2E-RGB`：本项目主实验；
-2. `SLAM/Nav2 baseline`：原车传统导航链路；
+2. `SLAM/Nav2 baseline`：传统定位与导航链路；
 3. `VLN-E2E + depth`：深度输入消融；
 4. `VLN-E2E + proprioception`：IMU、轮速或机体速度消融；
 5. 其他模型、历史长度和动作表示消融。

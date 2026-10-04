@@ -15,11 +15,8 @@
 
 ---
 
-## 2. 与其他仓库的协同与边界
+## 2. 与其他研究仓库的边界
 
-- **🚗 底层实车工程（[`XJTLU-autonomous-vehicle-rtk`](file:///Users/sousuke/Desktop/XJTLU-autonomous-vehicle-rtk)）**：
-  - 原车仓库负责硬件驱动（MID360、RTK、相机、IMU）、TF 变换、底盘串口通信、STM32 固件及车辆级安全保护。
-  - 本仓库作为 ROS 2 overlay 运行，只通过明确版本化的 ROS 2 话题接口（如 `/vln/input/image`, `/vln/cmd_vel`）与原车连接，**不复制、不篡改原车底层驱动与固件代码**。
 - **🌟 兄弟算法库（[`ETPNav-MID360`](file:///Users/sousuke/Desktop/ETPNav-MID360)）**：
   - 分别探索端到端连续控制（本仓库）与拓扑图/航点提议（ETPNav）两条学术路线，相互对照消融。
 - **🖥️ 仿真平台基座（[`habitat-lab`](file:///Users/sousuke/Desktop/habitat-lab)）**：
