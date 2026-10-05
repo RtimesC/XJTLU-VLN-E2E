@@ -1,4 +1,4 @@
-# XJTLU Autonomous Vehicle VLN
+# XJTLU VLN-E2E
 
 面向 XJTLU 自动驾驶小车的团队端到端视觉语言导航（Vision-Language Navigation, VLN）科研项目与代码仓库。
 

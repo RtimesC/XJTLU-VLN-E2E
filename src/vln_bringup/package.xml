@@ -3,7 +3,7 @@
 <package format="3">
   <name>vln_bringup</name>
   <version>0.1.0</version>
-  <description>Launch orchestration and parameter configs for XJTLU Autonomous Vehicle VLN</description>
+  <description>Launch orchestration and parameter configs for XJTLU VLN-E2E</description>
   <maintainer email="sousuke@xjtlu.edu.cn">sousuke</maintainer>
   <license>Apache-2.0</license>
 

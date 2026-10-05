@@ -1,8 +1,8 @@
-# XJTLU-autonomous-vehicle-vln 核心算法规范
+# XJTLU-VLN-E2E 核心算法规范
 
 ## 1. 项目定位与研究目标
 
-本项目（[`XJTLU-autonomous-vehicle-vln`](file:///Users/sousuke/Desktop/XJTLU-autonomous-vehicle-vln)）是面向 XJTLU 自动驾驶小车的**端到端视觉语言导航（VLN-E2E）核心主算法科研仓库**。
+本项目（[`XJTLU-VLN-E2E`](file:///Users/sousuke/Desktop/XJTLU-VLN-E2E)）是面向 XJTLU 自动驾驶小车的**端到端视觉语言导航（VLN-E2E）核心主算法科研仓库**。
 
 ### 核心策略映射
 ```text

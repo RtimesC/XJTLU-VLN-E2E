@@ -34,7 +34,7 @@ def run_simulation(
     max_steps: int = 150,
 ):
     print("=" * 95)
-    print("         XJTLU Autonomous Vehicle VLN - Closed-Loop Simulation (Mac / CI)")
+    print("         XJTLU VLN-E2E - Closed-Loop Simulation (Mac / CI)")
     print("=" * 95)
     print(f" Episode ID   : {episode_id}")
     print(f" Instruction  : \"{instruction}\"")
