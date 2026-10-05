@@ -6,6 +6,11 @@ import math
 from typing import Optional
 import numpy as np
 
+try:
+    from magnum import Vector3
+except ImportError:  # pragma: no cover - only exercised in Habitat-Sim envs
+    Vector3 = None
+
 from .bridge_core import BaseSimAdapter, SimAgentPose, SimObservation, integrate_differential_drive
 
 try:
@@ -105,6 +110,18 @@ class HabitatSimAdapter(BaseSimAdapter):
             step_index=0,
             third_person_rgb=third_person_rgb,
         )
+
+    def is_navigable(self, pose: SimAgentPose) -> bool:
+        """Check the vehicle base position against Habitat's navmesh."""
+        if Vector3 is None:
+            raise RuntimeError("Habitat-Sim Magnum bindings are unavailable")
+        point = Vector3(float(pose.x), float(pose.z), float(pose.y))
+        return bool(self._sim.pathfinder.is_navigable(point))
+
+    def sample_navigable_pose(self, yaw: float = 0.0) -> SimAgentPose:
+        """Sample a valid low-profile vehicle pose from the loaded navmesh."""
+        point = self._sim.pathfinder.get_random_navigable_point()
+        return SimAgentPose(x=float(point[0]), y=float(point[2]), z=float(point[1]), yaw=float(yaw))
 
 
     def step(self, linear_velocity: float, angular_velocity: float, dt: float) -> SimObservation:

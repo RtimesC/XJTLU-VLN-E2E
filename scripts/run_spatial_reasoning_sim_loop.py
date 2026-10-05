@@ -99,6 +99,58 @@ def select_simulator(scene_path: Optional[str], allow_mock: bool):
     return MockSceneAdapter(width=CAMERA_WIDTH, height=CAMERA_HEIGHT), "Mock Synthetic"
 
 
+def validate_habitat_start(sim, init_pose: SimAgentPose, sample_valid_pose: bool):
+    """Require a navmesh-valid start, with explicit random sampling opt-in."""
+    if not isinstance(sim, HabitatSimAdapter):
+        return init_pose
+    if sim.is_navigable(init_pose):
+        return init_pose
+    if not sample_valid_pose:
+        raise ValueError(
+            "Initial pose is not navigable in the loaded Habitat scene: "
+            f"(x={init_pose.x:.3f}, y={init_pose.y:.3f}, z={init_pose.z:.3f}). "
+            "Pass --sample-valid-pose to sample a valid start and goal from the navmesh."
+        )
+    sampled = sim.sample_navigable_pose(yaw=init_pose.yaw)
+    print(
+        "[!] Requested start was not navigable; sampled navmesh start: "
+        f"(x={sampled.x:.3f}, y={sampled.y:.3f}, z={sampled.z:.3f})"
+    )
+    return sampled
+
+
+def sample_goal_scenario(sim, scenario: EpisodeScenario, start_pose: SimAgentPose) -> EpisodeScenario:
+    """Replace a non-navigable demo goal with a navmesh-valid sampled goal."""
+    if not isinstance(sim, HabitatSimAdapter):
+        return scenario
+    goal_pose = sim.sample_navigable_pose()
+    for _ in range(20):
+        if math.hypot(goal_pose.x - start_pose.x, goal_pose.y - start_pose.y) >= 1.0:
+            break
+        goal_pose = sim.sample_navigable_pose()
+    distance = math.hypot(goal_pose.x - start_pose.x, goal_pose.y - start_pose.y)
+    print(
+        "[!] Sampled navmesh goal: "
+        f"(x={goal_pose.x:.3f}, y={goal_pose.y:.3f}, z={goal_pose.z:.3f}), "
+        f"planar distance={distance:.3f}m"
+    )
+    return EpisodeScenario(
+        scenario_id=scenario.scenario_id + "_sampled_navmesh",
+        instruction=scenario.instruction,
+        start_x=start_pose.x,
+        start_y=start_pose.y,
+        start_yaw=start_pose.yaw,
+        success_region=SuccessRegion(
+            center_x=goal_pose.x,
+            center_y=goal_pose.y,
+            radius=scenario.success_region.radius,
+        ),
+        max_duration_sec=scenario.max_duration_sec,
+        max_steps=scenario.max_steps,
+        tags=list(scenario.tags) + ["sampled_navmesh_goal"],
+    )
+
+
 def render_hud_overlay(
     rgb: np.ndarray,
     step: int,
@@ -232,6 +284,7 @@ def run_simulation(
     init_pose: Optional[SimAgentPose] = None,
     scenario: Optional[EpisodeScenario] = None,
     allow_mock: bool = False,
+    sample_valid_pose: bool = False,
 ):
     if abs(float(dt) - SIM_DT_SEC) > 1e-9:
         raise ValueError(f"Vehicle simulation timestep is fixed at {SIM_DT_SEC}s (10 Hz)")
@@ -265,6 +318,11 @@ def run_simulation(
 
     print(f"[*] Initializing scene: {scene_path}")
     sim, backend_name = select_simulator(scene_path, allow_mock=allow_mock)
+
+    init_pose = validate_habitat_start(sim, init_pose, sample_valid_pose)
+    if sample_valid_pose:
+        scenario = sample_goal_scenario(sim, scenario, init_pose)
+        validate_scenario(scenario)
 
     print(f"[*] Active Backend: {backend_name}")
     print(f"{'Step':>5} | {'Sim Time':>8} | {'State':^16} | {'Pose (x, y, yaw)':^23} | {'Raw (v, w)':^16} | {'Safe (v, w)':^16} | {'p_stop':>6}")
@@ -426,6 +484,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Explicitly permit MockSceneAdapter for Mac smoke tests; never use for real evaluation.",
     )
+    parser.add_argument(
+        "--sample-valid-pose",
+        action="store_true",
+        help="Sample a valid navmesh start and goal when the requested pose is invalid.",
+    )
     args = parser.parse_args()
 
     run_simulation(
@@ -433,4 +496,5 @@ if __name__ == "__main__":
         scene_path=args.scene,
         output_video_path=args.output,
         allow_mock=args.allow_mock,
+        sample_valid_pose=args.sample_valid_pose,
     )
