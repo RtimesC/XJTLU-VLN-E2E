@@ -2,6 +2,7 @@
 
 import os
 import time
+import math
 from typing import Optional
 import numpy as np
 
@@ -55,8 +56,17 @@ class HabitatSimAdapter(BaseSimAdapter):
         camera_sensor_spec.position = [0.0, self.sensor_height, 0.0]
         camera_sensor_spec.hfov = self.hfov
 
+        # Visualization-only chase camera. The policy still receives only color_sensor.
+        third_person_spec = habitat_sim.CameraSensorSpec()
+        third_person_spec.uuid = "third_person_sensor"
+        third_person_spec.sensor_type = habitat_sim.SensorType.COLOR
+        third_person_spec.resolution = [self.height, self.width]
+        third_person_spec.position = [0.0, 2.0, 3.0]
+        third_person_spec.orientation = [math.radians(-28.0), 0.0, 0.0]
+        third_person_spec.hfov = self.hfov
+
         agent_cfg = habitat_sim.agent.AgentConfiguration()
-        agent_cfg.sensor_specifications = [camera_sensor_spec]
+        agent_cfg.sensor_specifications = [camera_sensor_spec, third_person_spec]
 
         cfg = habitat_sim.Configuration(backend_cfg, [agent_cfg])
         self._sim = habitat_sim.Simulator(cfg)
@@ -75,10 +85,12 @@ class HabitatSimAdapter(BaseSimAdapter):
             agent.set_state(state)
             obs = self._sim.get_sensor_observations()
         rgb = obs["color_sensor"][:, :, :3]
+        third_person_rgb = obs["third_person_sensor"][:, :, :3]
         return SimObservation(
             rgb=rgb,
             timestamp_sec=time.time(),
             step_index=0,
+            third_person_rgb=third_person_rgb,
         )
 
 
@@ -97,10 +109,12 @@ class HabitatSimAdapter(BaseSimAdapter):
 
         obs = self._sim.get_sensor_observations()
         rgb = obs["color_sensor"][:, :, :3]
+        third_person_rgb = obs["third_person_sensor"][:, :, :3]
         return SimObservation(
             rgb=rgb,
             timestamp_sec=time.time(),
             step_index=self._step_counter,
+            third_person_rgb=third_person_rgb,
         )
 
     def close(self) -> None:

@@ -80,8 +80,39 @@ class MockSceneAdapter(BaseSimAdapter):
             img[d_y1:d_y2, d_x1 : min(d_x2, d_x1 + border_thick)] = [15, 15, 20]
             img[d_y1:d_y2, max(d_x1, d_x2 - border_thick) : d_x2] = [15, 15, 20]
 
+        third_person = self._render_third_person()
         return SimObservation(
             rgb=img,
             timestamp_sec=timestamp,
             step_index=self._step_counter,
+            third_person_rgb=third_person,
         )
+
+    def _render_third_person(self) -> np.ndarray:
+        """Render a visualization-only top-down chase view for Mock runs."""
+        view = np.full((self.height, self.width, 3), 28, dtype=np.uint8)
+        # Corridor floor and walls in a simple metric-like top-down projection.
+        view[int(self.height * 0.18):int(self.height * 0.82), :] = [92, 96, 104]
+        view[:, :int(self.width * 0.18)] = [55, 58, 65]
+        view[:, int(self.width * 0.82):] = [55, 58, 65]
+        center_x = self.width // 2
+        center_y = int(self.height * 0.70)
+        scale = min(self.width, self.height) / 6.0
+        agent_x = int(center_x + self.pose.y * scale)
+        agent_y = int(center_y - self.pose.x * scale)
+        agent_x = max(20, min(self.width - 20, agent_x))
+        agent_y = max(20, min(self.height - 20, agent_y))
+        # Draw a coarse trajectory direction arrow without adding a plotting dependency.
+        import math
+        heading_len = 34
+        end_x = int(agent_x - math.sin(self.pose.yaw) * heading_len)
+        end_y = int(agent_y - math.cos(self.pose.yaw) * heading_len)
+        yy, xx = np.ogrid[:self.height, :self.width]
+        body = (xx - agent_x) ** 2 + (yy - agent_y) ** 2 <= 11 ** 2
+        view[body] = [60, 210, 120]
+        for t in np.linspace(0.0, 1.0, 40):
+            px = int(agent_x + (end_x - agent_x) * t)
+            py = int(agent_y + (end_y - agent_y) * t)
+            if 0 <= px < self.width and 0 <= py < self.height:
+                view[max(0, py - 2):py + 3, max(0, px - 2):px + 3] = [60, 230, 150]
+        return view

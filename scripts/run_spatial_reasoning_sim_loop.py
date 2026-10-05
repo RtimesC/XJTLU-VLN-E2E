@@ -145,6 +145,16 @@ def render_hud_overlay(
     return bgr
 
 
+def compose_video_frame(front_hud_bgr: np.ndarray, third_person_rgb: np.ndarray) -> np.ndarray:
+    """Compose front-view HUD and visualization-only third-person view side by side."""
+    third_bgr = cv2.cvtColor(third_person_rgb, cv2.COLOR_RGB2BGR)
+    third_bgr = cv2.resize(third_bgr, (front_hud_bgr.shape[1], front_hud_bgr.shape[0]), interpolation=cv2.INTER_NEAREST)
+    cv2.rectangle(third_bgr, (0, 0), (third_bgr.shape[1] - 1, third_bgr.shape[0] - 1), (80, 220, 255), 2)
+    cv2.rectangle(third_bgr, (0, 0), (250, 32), (15, 15, 18), -1)
+    cv2.putText(third_bgr, "THIRD-PERSON (VISUALIZATION)", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (80, 220, 255), 1, cv2.LINE_AA)
+    return np.hstack([front_hud_bgr, third_bgr])
+
+
 def run_simulation(
     episode_id: str = "spatial_sim_01",
     instruction: str = "navigate straight through the corridor to find the doorway",
@@ -188,7 +198,7 @@ def run_simulation(
 
     os.makedirs(os.path.dirname(output_video_path) or ".", exist_ok=True)
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    video_writer = cv2.VideoWriter(output_video_path, fourcc, 10.0, (640, 480))
+    video_writer = cv2.VideoWriter(output_video_path, fourcc, 10.0, (1280, 480))
 
     obs = sim.reset(SimAgentPose(x=0.0, y=0.0, yaw=init_yaw_rad))
 
@@ -278,7 +288,10 @@ def run_simulation(
             info=info,
             backend_name=backend_name,
         )
-        video_writer.write(hud_frame)
+        third_person_rgb = obs.third_person_rgb
+        if third_person_rgb is None:
+            third_person_rgb = np.zeros_like(obs.rgb)
+        video_writer.write(compose_video_frame(hud_frame, third_person_rgb))
 
         pose_str = f"({sim.pose.x:5.2f}, {sim.pose.y:5.2f}, {math.degrees(sim.pose.yaw):+5.1f}°)"
         raw_str = f"({act.linear_velocity:4.2f}, {act.angular_velocity:+4.2f})"

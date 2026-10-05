@@ -50,6 +50,9 @@ def test_mock_scene_adapter_rendering():
 
     assert obs.rgb.shape == (240, 320, 3)
     assert obs.rgb.dtype == np.uint8
+    assert obs.third_person_rgb is not None
+    assert obs.third_person_rgb.shape == (240, 320, 3)
+    assert obs.third_person_rgb.dtype == np.uint8
     assert obs.step_index == 0
 
     # Step forward

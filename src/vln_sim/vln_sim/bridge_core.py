@@ -23,6 +23,8 @@ class SimObservation:
     timestamp_sec: float
     step_index: int
     depth: Optional[np.ndarray] = None
+    # Visualization-only chase view. The policy must consume ``rgb`` only.
+    third_person_rgb: Optional[np.ndarray] = None
 
 
 def integrate_differential_drive(
