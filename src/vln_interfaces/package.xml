@@ -3,7 +3,7 @@
 <package format="3">
   <name>vln_interfaces</name>
   <version>0.2.0</version>
-  <description>ROS 2 interface definitions for XJTLU Autonomous Vehicle Vision-Language Navigation</description>
+  <description>ROS 2 interface definitions for XJTLU VLN-E2E</description>
   <maintainer email="sousuke@xjtlu.edu.cn">sousuke</maintainer>
   <license>Apache-2.0</license>
 
