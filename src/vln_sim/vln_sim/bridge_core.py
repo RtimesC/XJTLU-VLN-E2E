@@ -73,9 +73,10 @@ class BaseSimAdapter(ABC):
     """Abstract interface for simulator backends (Habitat-Sim or MockScene)."""
 
     @abstractmethod
-    def reset(self) -> SimObservation:
+    def reset(self, init_pose: Optional[SimAgentPose] = None) -> SimObservation:
         """Resets simulator to initial scene state."""
         pass
+
 
     @abstractmethod
     def step(self, linear_velocity: float, angular_velocity: float, dt: float) -> SimObservation:
