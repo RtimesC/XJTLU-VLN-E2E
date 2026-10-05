@@ -40,7 +40,7 @@ class HabitatSimAdapter(BaseSimAdapter):
 
         self._sim = None
         self._step_counter = 0
-        self.pose = SimAgentPose(z=sensor_height)
+        self.pose = SimAgentPose()
         self._init_sim()
 
     def _init_sim(self):
@@ -72,7 +72,7 @@ class HabitatSimAdapter(BaseSimAdapter):
         self._sim = habitat_sim.Simulator(cfg)
 
     def reset(self, init_pose: Optional[SimAgentPose] = None) -> SimObservation:
-        self.pose = init_pose if init_pose is not None else SimAgentPose(z=self.sensor_height)
+        self.pose = init_pose if init_pose is not None else SimAgentPose()
         self._step_counter = 0
         obs = self._sim.reset()
         if init_pose is not None and self._sim is not None:

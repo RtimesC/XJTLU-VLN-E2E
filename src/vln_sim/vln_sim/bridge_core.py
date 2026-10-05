@@ -9,10 +9,15 @@ import numpy as np
 
 @dataclass
 class SimAgentPose:
-    """Agent 3D pose in simulator coordinates."""
+    """Agent pose in simulator coordinates.
+
+    ``x`` and ``y`` are the ground-plane coordinates used by the VLN runner;
+    ``z`` is the simulator's vertical/world coordinate. Camera mounting height
+    remains a sensor configuration and is not stored in this pose.
+    """
     x: float = 0.0
     y: float = 0.0
-    z: float = 0.45  # Height above ground in meters (matches vehicle camera mounting)
+    z: float = 0.0  # Simulator vertical/world coordinate
     yaw: float = 0.0  # Radians, 0 points forward along x-axis
 
 

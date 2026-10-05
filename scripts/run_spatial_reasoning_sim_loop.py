@@ -7,10 +7,12 @@ Supports both:
 """
 
 import argparse
+import gzip
+import json
 import math
 import os
 import sys
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
@@ -163,6 +165,8 @@ def run_simulation(
     max_steps: int = 250,
     scene_path: str = "data/scene_datasets/habitat-test-scenes/skokloster-castle.glb",
     output_video_path: str = "recordings/spatial_reasoning_sim.mp4",
+    init_pose: Optional[SimAgentPose] = None,
+    scenario: Optional[EpisodeScenario] = None,
 ):
     print("=" * 105)
     print("         XJTLU VLN-E2E - Limited-FOV Spatial Reasoning Simulation (3D HUD Video)")
@@ -200,7 +204,18 @@ def run_simulation(
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     video_writer = cv2.VideoWriter(output_video_path, fourcc, 10.0, (1280, 480))
 
-    obs = sim.reset(SimAgentPose(x=0.0, y=0.0, yaw=init_yaw_rad))
+    if scenario is None:
+        scenario = EpisodeScenario(
+            scenario_id=episode_id,
+            instruction=instruction,
+            start_x=0.0,
+            start_y=0.0,
+            start_yaw=init_yaw_rad,
+            success_region=SuccessRegion(center_x=3.0, center_y=0.0, radius=0.8),
+        )
+    if init_pose is None:
+        init_pose = SimAgentPose(x=scenario.start_x, y=scenario.start_y, yaw=scenario.start_yaw)
+    obs = sim.reset(init_pose)
 
     policy = SpatialReasoningPolicy(SpatialReasoningConfig(max_episode_steps=max_steps))
     policy.reset(episode_id=episode_id)
@@ -220,15 +235,8 @@ def run_simulation(
     manager = EpisodeManager(EpisodeManagerConfig(max_duration_sec=35.0, max_steps=max_steps))
     manager.start_episode(episode_id=episode_id, instruction=instruction, monotonic_now=0.0)
 
-    goal_x, goal_y = 3.0, 0.0
-    scenario = EpisodeScenario(
-        scenario_id="corridor_doorway_01",
-        instruction=instruction,
-        start_x=0.0,
-        start_y=0.0,
-        start_yaw=init_yaw_rad,
-        success_region=SuccessRegion(center_x=goal_x, center_y=goal_y, radius=0.8),
-    )
+    goal_x = scenario.success_region.center_x
+    goal_y = scenario.success_region.center_y
 
     trajectory: List[Tuple[float, float]] = [(sim.pose.x, sim.pose.y)]
     velocity_commands: List[Tuple[float, float]] = []

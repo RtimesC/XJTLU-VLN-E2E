@@ -2,7 +2,7 @@
 
 import math
 from dataclasses import dataclass, field
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 @dataclass
 class SuccessRegion:
@@ -36,6 +36,8 @@ class EpisodeScenario:
     max_duration_sec: float = 60.0
     max_steps: int = 500
     tags: List[str] = field(default_factory=list)
+    # Optional simulator-provided geodesic distance for SPL evaluation.
+    geodesic_distance_m: Optional[float] = None
 
     def start_pose_tuple(self) -> Tuple[float, float, float]:
         """Returns the start pose as a tuple (x, y, yaw)."""
@@ -69,7 +71,12 @@ def parse_scenarios(data: Dict[str, Any]) -> List[EpisodeScenario]:
             success_region=success_region,
             max_duration_sec=float(s_dict.get("max_duration_sec", 60.0)),
             max_steps=int(s_dict.get("max_steps", 500)),
-            tags=s_dict.get("tags", [])
+            tags=s_dict.get("tags", []),
+            geodesic_distance_m=(
+                float(s_dict["geodesic_distance_m"])
+                if s_dict.get("geodesic_distance_m") is not None
+                else (float(s_dict["info"]["geodesic_distance"]) if s_dict.get("info", {}).get("geodesic_distance") is not None else None)
+            ),
         )
         scenarios.append(scenario)
     return scenarios

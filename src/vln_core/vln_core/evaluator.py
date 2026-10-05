@@ -71,7 +71,11 @@ class VlnEvaluator:
         
         start_dx = scenario.start_x - scenario.success_region.center_x
         start_dy = scenario.start_y - scenario.success_region.center_y
-        shortest_path_m = math.sqrt(start_dx * start_dx + start_dy * start_dy)
+        shortest_path_m = (
+            scenario.geodesic_distance_m
+            if scenario.geodesic_distance_m is not None
+            else math.sqrt(start_dx * start_dx + start_dy * start_dy)
+        )
 
         # Path length
         path_length_m = 0.0
