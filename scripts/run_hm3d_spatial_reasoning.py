@@ -26,6 +26,8 @@ from run_spatial_reasoning_sim_loop import run_simulation
 
 
 def load_episode(path: str, episode_index: int) -> Dict[str, Any]:
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"HM3D dataset not found: {path}")
     with gzip.open(path, "rt", encoding="utf-8") as handle:
         data = json.load(handle)
     episodes = data.get("episodes", [])
@@ -40,13 +42,25 @@ def dataset_quaternion_to_sim_yaw(rotation: Any) -> float:
     """Convert HM3D [x, y, z, w] yaw to the runner's +x-forward convention."""
     if len(rotation) != 4:
         raise ValueError(f"Expected quaternion [x, y, z, w], got {rotation}")
+    norm = math.sqrt(sum(float(value) ** 2 for value in rotation))
+    if not math.isfinite(norm) or norm < 1e-9:
+        raise ValueError("HM3D start rotation must be a finite, non-zero quaternion")
     theta = 2.0 * math.atan2(float(rotation[1]), float(rotation[3]))
     return math.atan2(math.sin(-math.pi / 2.0 - theta), math.cos(-math.pi / 2.0 - theta))
 
 
 def build_scenario(episode: Dict[str, Any], radius: float) -> tuple[SimAgentPose, EpisodeScenario]:
+    if radius <= 0.0 or not math.isfinite(radius):
+        raise ValueError("Goal radius must be a finite number > 0")
+    for field in ("episode_id", "scene_id", "start_position", "start_rotation", "goals"):
+        if field not in episode:
+            raise ValueError(f"HM3D episode missing required field: {field}")
     start = [float(v) for v in episode["start_position"]]
     goal = [float(v) for v in episode["goals"][0]["position"]]
+    if len(start) != 3 or len(goal) != 3:
+        raise ValueError("HM3D start_position and goal position must be 3D coordinates")
+    if not all(math.isfinite(value) for value in start + goal):
+        raise ValueError("HM3D start and goal coordinates must be finite")
     start_pose = SimAgentPose(
         x=start[0],
         y=start[2],
@@ -85,10 +99,13 @@ def main() -> None:
     parser.add_argument("--output", default="recordings/hm3d_spatial_reasoning_ep0.mp4")
     args = parser.parse_args()
 
+    if args.steps <= 0:
+        parser.error("--steps must be > 0")
+
     episode = load_episode(args.dataset, args.episode_index)
     start_pose, scenario = build_scenario(episode, args.goal_radius)
     scene_path = os.path.join(args.hm3d_root, episode["scene_id"])
-    if not os.path.exists(scene_path):
+    if not os.path.isfile(scene_path):
         raise FileNotFoundError(f"HM3D scene not found: {scene_path}")
 
     print(f"HM3D episode: {scenario.scenario_id}")

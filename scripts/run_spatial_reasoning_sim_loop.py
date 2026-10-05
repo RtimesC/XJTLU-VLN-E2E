@@ -35,6 +35,70 @@ from vln_sim.mock_scene_adapter import MockSceneAdapter
 from vln_sim.habitat_adapter import HabitatSimAdapter, habitat_sim
 
 
+# Immutable XJTLU vehicle contract. Keep these values in one place so a
+# runner cannot silently drift to Habitat's human-height defaults.
+CAMERA_WIDTH = 640
+CAMERA_HEIGHT = 480
+CAMERA_HFOV_DEG = 90.0
+CAMERA_SENSOR_HEIGHT_M = 0.45
+AGENT_RADIUS_M = 0.38625
+AGENT_HEIGHT_M = 0.5
+SIM_DT_SEC = 0.1
+REQUIRED_HABITAT_PYTHON = "/home/sousuke/miniforge3/envs/habitat_vln/bin/python"
+
+
+def validate_scenario(scenario: EpisodeScenario) -> None:
+    """Reject malformed episode goals before starting a simulator."""
+    values = (
+        scenario.start_x,
+        scenario.start_y,
+        scenario.start_yaw,
+        scenario.success_region.center_x,
+        scenario.success_region.center_y,
+        scenario.success_region.radius,
+    )
+    if not all(math.isfinite(float(value)) for value in values):
+        raise ValueError("Episode start/goal values must be finite numbers")
+    if scenario.success_region.radius <= 0.0:
+        raise ValueError("Episode success-region radius must be > 0")
+    if scenario.max_steps <= 0:
+        raise ValueError("Episode max_steps must be > 0")
+    if scenario.geodesic_distance_m is not None and scenario.geodesic_distance_m <= 0.0:
+        raise ValueError("Episode geodesic distance must be > 0 when provided")
+
+
+def select_simulator(scene_path: Optional[str], allow_mock: bool):
+    """Select a backend without silently hiding a broken real-scene run."""
+    if not scene_path:
+        if allow_mock:
+            print("[!] Explicit --allow-mock enabled without --scene; this is a synthetic smoke test.")
+            return MockSceneAdapter(width=CAMERA_WIDTH, height=CAMERA_HEIGHT), "Mock Synthetic"
+        raise ValueError("A real scene path is required; pass --scene explicitly")
+    scene_exists = os.path.isfile(scene_path)
+    if scene_exists and habitat_sim is not None:
+        if sys.executable != REQUIRED_HABITAT_PYTHON:
+            raise RuntimeError(
+                "Real Habitat-Sim runs must use the designated interpreter: "
+                f"{REQUIRED_HABITAT_PYTHON} (got {sys.executable})"
+            )
+        return HabitatSimAdapter(
+            scene_path=scene_path,
+            width=CAMERA_WIDTH,
+            height=CAMERA_HEIGHT,
+            hfov=CAMERA_HFOV_DEG,
+            sensor_height=CAMERA_SENSOR_HEIGHT_M,
+        ), "Habitat-Sim 3D"
+    if not allow_mock:
+        if not scene_exists:
+            raise FileNotFoundError(f"Real scene not found: {scene_path}")
+        raise RuntimeError(
+            "habitat_sim is unavailable; refusing Mock fallback for a real-scene run. "
+            "Use the habitat_vln interpreter, or pass --allow-mock only for an explicit Mac smoke test."
+        )
+    print("[!] Explicit --allow-mock enabled; this run is not a real 3D evaluation.")
+    return MockSceneAdapter(width=CAMERA_WIDTH, height=CAMERA_HEIGHT), "Mock Synthetic"
+
+
 def render_hud_overlay(
     rgb: np.ndarray,
     step: int,
@@ -163,11 +227,16 @@ def run_simulation(
     init_yaw_rad: float = 0.25,
     dt: float = 0.1,
     max_steps: int = 250,
-    scene_path: str = "data/scene_datasets/habitat-test-scenes/skokloster-castle.glb",
+    scene_path: Optional[str] = None,
     output_video_path: str = "recordings/spatial_reasoning_sim.mp4",
     init_pose: Optional[SimAgentPose] = None,
     scenario: Optional[EpisodeScenario] = None,
+    allow_mock: bool = False,
 ):
+    if abs(float(dt) - SIM_DT_SEC) > 1e-9:
+        raise ValueError(f"Vehicle simulation timestep is fixed at {SIM_DT_SEC}s (10 Hz)")
+    if max_steps <= 0:
+        raise ValueError("max_steps must be > 0")
     print("=" * 105)
     print("         XJTLU VLN-E2E - Limited-FOV Spatial Reasoning Simulation (3D HUD Video)")
     print("=" * 105)
@@ -178,32 +247,6 @@ def run_simulation(
     print(f" Timestep dt  : {dt}s | Max Steps: {max_steps}")
     print("-" * 105)
 
-    # Automatically choose between real Habitat 3D simulator and Mock fallback
-    has_habitat = habitat_sim is not None and os.path.exists(scene_path)
-    if has_habitat:
-        backend_name = "Habitat-Sim 3D"
-        print(f"[*] Initializing real 3D Habitat renderer with scene: {scene_path}")
-        sim = HabitatSimAdapter(
-            scene_path=scene_path,
-            width=640,
-            height=480,
-            hfov=90.0,
-            sensor_height=0.45,
-        )
-    else:
-        backend_name = "Mock Synthetic"
-        reason = "habitat_sim not installed" if habitat_sim is None else f"scene file not found ({scene_path})"
-        print(f"[*] Fallback to MockSceneAdapter ({reason}).")
-        sim = MockSceneAdapter(width=640, height=480)
-
-    print(f"[*] Active Backend: {backend_name}")
-    print(f"{'Step':>5} | {'Sim Time':>8} | {'State':^16} | {'Pose (x, y, yaw)':^23} | {'Raw (v, w)':^16} | {'Safe (v, w)':^16} | {'p_stop':>6}")
-    print("-" * 105)
-
-    os.makedirs(os.path.dirname(output_video_path) or ".", exist_ok=True)
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    video_writer = cv2.VideoWriter(output_video_path, fourcc, 10.0, (1280, 480))
-
     if scenario is None:
         scenario = EpisodeScenario(
             scenario_id=episode_id,
@@ -213,8 +256,27 @@ def run_simulation(
             start_yaw=init_yaw_rad,
             success_region=SuccessRegion(center_x=3.0, center_y=0.0, radius=0.8),
         )
+    validate_scenario(scenario)
+    if init_pose is not None:
+        if math.hypot(init_pose.x - scenario.start_x, init_pose.y - scenario.start_y) > 1e-6:
+            raise ValueError("init_pose and scenario start coordinates do not match")
     if init_pose is None:
         init_pose = SimAgentPose(x=scenario.start_x, y=scenario.start_y, yaw=scenario.start_yaw)
+
+    print(f"[*] Initializing scene: {scene_path}")
+    sim, backend_name = select_simulator(scene_path, allow_mock=allow_mock)
+
+    print(f"[*] Active Backend: {backend_name}")
+    print(f"{'Step':>5} | {'Sim Time':>8} | {'State':^16} | {'Pose (x, y, yaw)':^23} | {'Raw (v, w)':^16} | {'Safe (v, w)':^16} | {'p_stop':>6}")
+    print("-" * 105)
+
+    os.makedirs(os.path.dirname(output_video_path) or ".", exist_ok=True)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    video_writer = cv2.VideoWriter(output_video_path, fourcc, 1.0 / SIM_DT_SEC, (1280, CAMERA_HEIGHT))
+    if not video_writer.isOpened():
+        sim.close()
+        raise RuntimeError(f"Could not open video output: {output_video_path}")
+
     obs = sim.reset(init_pose)
 
     policy = SpatialReasoningPolicy(SpatialReasoningConfig(max_episode_steps=max_steps))
@@ -315,10 +377,11 @@ def run_simulation(
             print(f">>> EPISODE COMPLETED at step {step} (t={sim_time:.2f}s, reason={termination_reason})!")
             break
 
-        obs = sim.step(safe_twist.linear_x, safe_twist.angular_z, dt)
-        sim_time += dt
+        obs = sim.step(safe_twist.linear_x, safe_twist.angular_z, SIM_DT_SEC)
+        sim_time += SIM_DT_SEC
 
     video_writer.release()
+    sim.close()
     print(f"\n[+] Video saved to: {os.path.abspath(output_video_path)}")
 
     result = EpisodeResult(
@@ -355,9 +418,19 @@ def run_simulation(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scene", type=str, default="data/scene_datasets/habitat-test-scenes/skokloster-castle.glb")
+    parser.add_argument("--scene", type=str, default=None)
     parser.add_argument("--steps", type=int, default=250)
     parser.add_argument("--output", type=str, default="recordings/spatial_reasoning_sim.mp4")
+    parser.add_argument(
+        "--allow-mock",
+        action="store_true",
+        help="Explicitly permit MockSceneAdapter for Mac smoke tests; never use for real evaluation.",
+    )
     args = parser.parse_args()
 
-    run_simulation(max_steps=args.steps, scene_path=args.scene, output_video_path=args.output)
+    run_simulation(
+        max_steps=args.steps,
+        scene_path=args.scene,
+        output_video_path=args.output,
+        allow_mock=args.allow_mock,
+    )

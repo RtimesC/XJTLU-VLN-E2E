@@ -17,6 +17,9 @@ except ImportError:
 class HabitatSimAdapter(BaseSimAdapter):
     """Adapter interfacing directly with Facebook AI Habitat-Sim."""
 
+    AGENT_RADIUS_M = 0.38625
+    AGENT_HEIGHT_M = 0.5
+
     def __init__(
         self,
         scene_path: str,
@@ -31,6 +34,12 @@ class HabitatSimAdapter(BaseSimAdapter):
                 "Please install habitat-sim (via conda install habitat-sim withbullet -c aihabitat) "
                 "or use MockSceneAdapter."
             )
+        if (width, height) != (640, 480):
+            raise ValueError("XJTLU camera resolution is fixed at 640x480")
+        if abs(float(hfov) - 90.0) > 1e-9:
+            raise ValueError("XJTLU camera HFOV is fixed at 90 degrees")
+        if abs(float(sensor_height) - 0.45) > 1e-9:
+            raise ValueError("XJTLU camera height is fixed at 0.45 m")
 
         self.scene_path = scene_path
         self.width = width
@@ -66,6 +75,10 @@ class HabitatSimAdapter(BaseSimAdapter):
         third_person_spec.hfov = self.hfov
 
         agent_cfg = habitat_sim.agent.AgentConfiguration()
+        # Immutable low-profile vehicle footprint; do not inherit Habitat's
+        # human-sized defaults.
+        agent_cfg.radius = self.AGENT_RADIUS_M
+        agent_cfg.height = self.AGENT_HEIGHT_M
         agent_cfg.sensor_specifications = [camera_sensor_spec, third_person_spec]
 
         cfg = habitat_sim.Configuration(backend_cfg, [agent_cfg])

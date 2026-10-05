@@ -24,17 +24,19 @@
 ### 在 Mac 本地验证测试套件：
 ```bash
 pytest
-# 运行极速 Mock 闭环仿真
-python3 scripts/run_spatial_reasoning_sim_loop.py
+# 运行极速 Mock 闭环仿真（必须显式允许 Mock）
+python3 scripts/run_spatial_reasoning_sim_loop.py --allow-mock
 ```
 
 ### 在 Linux 机器运行真实 3D Habitat 闭环仿真：
 ```bash
 cd ~/Desktop/XJTLU-VLN-E2E
-conda activate habitat_vln
-git pull origin spatial-intelligence-reasoning
-python scripts/run_spatial_reasoning_sim_loop.py --scene /home/sousuke/Desktop/habitat-lab/data/scene_datasets/habitat-test-scenes/skokloster-castle.glb
+git pull --ff-only origin spatial-intelligence-reasoning
+/home/sousuke/miniforge3/envs/habitat_vln/bin/python scripts/run_spatial_reasoning_sim_loop.py \
+  --scene /home/sousuke/Desktop/habitat-lab/data/scene_datasets/habitat-test-scenes/skokloster-castle.glb
 ```
+
+真实场景运行在 Habitat-Sim 不可用或场景缺失时会直接失败，不会静默降级为 Mock。
 
 ## 4. 下一步研发候选
 
