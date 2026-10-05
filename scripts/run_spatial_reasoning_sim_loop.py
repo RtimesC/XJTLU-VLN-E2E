@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
-"""Run closed-loop simulation of SpatialReasoningPolicy with HUD video recording.
+"""Run closed-loop simulation of SpatialReasoningPolicy with real Habitat 3D rendering.
 
-Demonstrates end-to-end perception -> spatial reasoning -> safety -> evaluator pipeline:
-1. Environment generates limited-FOV low-height (0.45m) RGB frames.
-2. SpatialReasoningPolicy leverages 8-sector topological memory, language priors,
-   and visual grounding to infer target direction and navigate.
-3. ActionAdapter converts policy action to stamped Twist format and latches stop condition.
-4. SafetyFilter enforces vehicle velocity bounds and acceleration constraints.
-5. EpisodeManager governs episode lifecycle and latched completion.
-6. HUD Overlay renders real-time telemetry, 8-sector belief radar, and target tracking.
-7. Output video is saved to recordings/spatial_reasoning_sim.mp4.
+Supports both:
+- Real Habitat-Sim 3D environment (loading real .glb scenes with photorealistic textures)
+- MockSceneAdapter fallback for headless Mac/CI environments without habitat-sim.
 """
 
 import argparse
@@ -36,6 +30,7 @@ from vln_policy.spatial_reasoning_policy import (
 )
 from vln_sim.bridge_core import SimAgentPose
 from vln_sim.mock_scene_adapter import MockSceneAdapter
+from vln_sim.habitat_adapter import HabitatSimAdapter, habitat_sim
 
 
 def render_hud_overlay(
@@ -51,20 +46,20 @@ def render_hud_overlay(
     goal_dist: float,
     sectors: list,
     info: dict,
+    backend_name: str,
 ) -> np.ndarray:
-    """Renders a head-up display (HUD) overlay on the 640x480 first-person frame."""
+    """Renders a crisp, high-definition HUD overlay on top of the first-person frame."""
     bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     h, w = bgr.shape[:2]
 
-    # Semi-transparent top header bar
+    # Top header bar (translucent dark)
     header_overlay = bgr.copy()
-    cv2.rectangle(header_overlay, (0, 0), (w, 54), (20, 20, 20), -1)
-    cv2.addWeighted(header_overlay, 0.75, bgr, 0.25, 0, bgr)
+    cv2.rectangle(header_overlay, (0, 0), (w, 54), (15, 15, 18), -1)
+    cv2.addWeighted(header_overlay, 0.70, bgr, 0.30, 0, bgr)
 
-    # Top title and instruction
     cv2.putText(
         bgr,
-        "XJTLU VLN-E2E | Limited-FOV Low Chassis (h=0.45m)",
+        f"XJTLU VLN-E2E | Backend: {backend_name} | Camera: Front (h=0.45m, 90 HFOV)",
         (12, 20),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.50,
@@ -74,7 +69,7 @@ def render_hud_overlay(
     )
     cv2.putText(
         bgr,
-        f'Prompt: "{instruction}"',
+        f'Task: "{instruction}"',
         (12, 42),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.45,
@@ -83,101 +78,42 @@ def render_hud_overlay(
         cv2.LINE_AA,
     )
 
-    # Telemetry box on bottom-left
+    # Bottom-left telemetry display
     box_overlay = bgr.copy()
-    cv2.rectangle(box_overlay, (10, h - 145), (290, h - 10), (15, 15, 15), -1)
+    cv2.rectangle(box_overlay, (10, h - 145), (295, h - 10), (15, 15, 18), -1)
     cv2.addWeighted(box_overlay, 0.70, bgr, 0.30, 0, bgr)
-    cv2.rectangle(bgr, (10, h - 145), (290, h - 10), (80, 80, 80), 1)
+    cv2.rectangle(bgr, (10, h - 145), (295, h - 10), (80, 80, 85), 1)
 
-    # State badge color
-    state_color = (0, 220, 255)  # Yellow default
+    state_color = (0, 220, 255)
     if state_str == "APPROACH":
-        state_color = (80, 255, 80)  # Green
+        state_color = (80, 255, 80)
     elif state_str in ("VERIFY", "STOP"):
-        state_color = (50, 120, 255)  # Orange/Red
+        state_color = (50, 120, 255)
     elif state_str == "ORIENT":
-        state_color = (255, 160, 50)  # Blue
+        state_color = (255, 160, 50)
 
-    cv2.putText(
-        bgr,
-        f"STATE: {state_str}",
-        (18, h - 122),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        state_color,
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        bgr,
-        f"Time: {sim_time:4.1f}s | Step: {step:3d}",
-        (18, h - 98),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.44,
-        (220, 220, 220),
-        1,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        bgr,
-        f"Cmd: v={linear_v:4.2f}m/s, w={angular_w:+4.2f}r/s",
-        (18, h - 76),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.44,
-        (220, 220, 220),
-        1,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        bgr,
-        f"Pose: ({pose.x:.2f}m, {pose.y:.2f}m, {math.degrees(pose.yaw):+.1f} deg)",
-        (18, h - 54),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.44,
-        (200, 200, 200),
-        1,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        bgr,
-        f"Goal Dist: {goal_dist:.2f}m | p_stop: {stop_prob:.2f}",
-        (18, h - 32),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.44,
-        (255, 230, 120),
-        1,
-        cv2.LINE_AA,
-    )
+    cv2.putText(bgr, f"STATE: {state_str}", (18, h - 122), cv2.FONT_HERSHEY_SIMPLEX, 0.55, state_color, 2, cv2.LINE_AA)
+    cv2.putText(bgr, f"Time: {sim_time:4.1f}s | Step: {step:3d}", (18, h - 98), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (220, 220, 220), 1, cv2.LINE_AA)
+    cv2.putText(bgr, f"Cmd: v={linear_v:4.2f}m/s, w={angular_w:+4.2f}r/s", (18, h - 76), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (220, 220, 220), 1, cv2.LINE_AA)
+    cv2.putText(bgr, f"Pose: ({pose.x:.2f}m, {pose.y:.2f}m, {math.degrees(pose.yaw):+.1f} deg)", (18, h - 54), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (200, 200, 200), 1, cv2.LINE_AA)
+    cv2.putText(bgr, f"Goal Dist: {goal_dist:.2f}m | p_stop: {stop_prob:.2f}", (18, h - 32), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 230, 120), 1, cv2.LINE_AA)
 
-    # 8-Sector Memory Mini-Radar on top-right
+    # 8-Sector Memory Mini-Radar (Top Right)
     radar_center = (w - 65, 80)
     radar_r = 38
     radar_overlay = bgr.copy()
-    cv2.circle(radar_overlay, radar_center, radar_r + 8, (15, 15, 15), -1)
+    cv2.circle(radar_overlay, radar_center, radar_r + 8, (15, 15, 18), -1)
     cv2.addWeighted(radar_overlay, 0.70, bgr, 0.30, 0, bgr)
-    cv2.circle(bgr, radar_center, radar_r + 8, (100, 100, 100), 1)
-    cv2.putText(
-        bgr,
-        "SECTOR RADAR",
-        (w - 110, 32),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.35,
-        (200, 200, 200),
-        1,
-        cv2.LINE_AA,
-    )
+    cv2.circle(bgr, radar_center, radar_r + 8, (100, 100, 105), 1)
+    cv2.putText(bgr, "SECTOR RADAR", (w - 110, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1, cv2.LINE_AA)
 
-    # Draw 8 sectors
-    for i, s in enumerate(sectors):
-        # 0 is Front (pointing straight up: -90 deg in image coords)
-        # Clockwise angles
+    for s in sectors:
         angle_deg = s.center_angle_deg - 90.0
         rad = math.radians(angle_deg)
         x_end = int(radar_center[0] + radar_r * math.cos(rad))
         y_end = int(radar_center[1] + radar_r * math.sin(rad))
 
         prob = min(max(s.target_probability, 0.0), 1.0)
-        # Color from blue (low) to bright green/yellow (high prob)
         c_val = int(prob * 8.0 * 255)
         c_val = min(max(c_val, 40), 255)
         sec_color = (50, c_val, 255 - c_val)
@@ -185,7 +121,6 @@ def render_hud_overlay(
         cv2.line(bgr, radar_center, (x_end, y_end), sec_color, 2)
         cv2.circle(bgr, (x_end, y_end), 3, sec_color, -1)
 
-    # Robot forward indicator arrow in radar
     cv2.arrowedLine(
         bgr,
         (radar_center[0], radar_center[1] + 8),
@@ -195,7 +130,6 @@ def render_hud_overlay(
         tipLength=0.35,
     )
 
-    # Target indicator box if detected
     if info.get("target_detected", False):
         cv2.putText(
             bgr,
@@ -217,18 +151,38 @@ def run_simulation(
     init_yaw_rad: float = 0.25,
     dt: float = 0.1,
     max_steps: int = 250,
+    scene_path: str = "data/scene_datasets/habitat-test-scenes/skokloster-castle.glb",
     output_video_path: str = "recordings/spatial_reasoning_sim.mp4",
 ):
     print("=" * 105)
-    print("         XJTLU VLN-E2E - Limited-FOV Spatial Reasoning Simulation (HUD Video)")
+    print("         XJTLU VLN-E2E - Limited-FOV Spatial Reasoning Simulation (3D HUD Video)")
     print("=" * 105)
     print(f" Episode ID   : {episode_id}")
     print(f" Instruction  : \"{instruction}\"")
     print(f" Camera Mount : Front-facing, Height = 0.45m, HFOV = 90.0°")
-    print(f" Initial Pose : x=0.00m, y=0.00m, yaw={init_yaw_rad:+.2f} rad ({math.degrees(init_yaw_rad):+.1f}°)")
     print(f" Output Video : {output_video_path}")
     print(f" Timestep dt  : {dt}s | Max Steps: {max_steps}")
     print("-" * 105)
+
+    # Automatically choose between real Habitat 3D simulator and Mock fallback
+    has_habitat = habitat_sim is not None and os.path.exists(scene_path)
+    if has_habitat:
+        backend_name = "Habitat-Sim 3D"
+        print(f"[*] Initializing real 3D Habitat renderer with scene: {scene_path}")
+        sim = HabitatSimAdapter(
+            scene_path=scene_path,
+            width=640,
+            height=480,
+            hfov=90.0,
+            sensor_height=0.45,
+        )
+    else:
+        backend_name = "Mock Synthetic"
+        reason = "habitat_sim not installed" if habitat_sim is None else f"scene file not found ({scene_path})"
+        print(f"[*] Fallback to MockSceneAdapter ({reason}).")
+        sim = MockSceneAdapter(width=640, height=480)
+
+    print(f"[*] Active Backend: {backend_name}")
     print(f"{'Step':>5} | {'Sim Time':>8} | {'State':^16} | {'Pose (x, y, yaw)':^23} | {'Raw (v, w)':^16} | {'Safe (v, w)':^16} | {'p_stop':>6}")
     print("-" * 105)
 
@@ -236,7 +190,6 @@ def run_simulation(
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     video_writer = cv2.VideoWriter(output_video_path, fourcc, 10.0, (640, 480))
 
-    sim = MockSceneAdapter(width=640, height=480)
     obs = sim.reset(SimAgentPose(x=0.0, y=0.0, yaw=init_yaw_rad))
 
     policy = SpatialReasoningPolicy(SpatialReasoningConfig(max_episode_steps=max_steps))
@@ -323,6 +276,7 @@ def run_simulation(
             goal_dist=goal_dist,
             sectors=policy.memory.sectors,
             info=info,
+            backend_name=backend_name,
         )
         video_writer.write(hud_frame)
 
@@ -379,4 +333,10 @@ def run_simulation(
 
 
 if __name__ == "__main__":
-    run_simulation()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--scene", type=str, default="data/scene_datasets/habitat-test-scenes/skokloster-castle.glb")
+    parser.add_argument("--steps", type=int, default=250)
+    parser.add_argument("--output", type=str, default="recordings/spatial_reasoning_sim.mp4")
+    args = parser.parse_args()
+
+    run_simulation(max_steps=args.steps, scene_path=args.scene, output_video_path=args.output)
