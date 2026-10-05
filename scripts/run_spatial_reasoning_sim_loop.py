@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run closed-loop simulation of SpatialReasoningPolicy.
+"""Run closed-loop simulation of SpatialReasoningPolicy with HUD video recording.
 
 Demonstrates end-to-end perception -> spatial reasoning -> safety -> evaluator pipeline:
 1. Environment generates limited-FOV low-height (0.45m) RGB frames.
@@ -8,13 +8,17 @@ Demonstrates end-to-end perception -> spatial reasoning -> safety -> evaluator p
 3. ActionAdapter converts policy action to stamped Twist format and latches stop condition.
 4. SafetyFilter enforces vehicle velocity bounds and acceleration constraints.
 5. EpisodeManager governs episode lifecycle and latched completion.
-6. Evaluator computes path efficiency, SPL, and success metrics.
+6. HUD Overlay renders real-time telemetry, 8-sector belief radar, and target tracking.
+7. Output video is saved to recordings/spatial_reasoning_sim.mp4.
 """
 
+import argparse
 import math
 import os
 import sys
 from typing import List, Tuple
+import cv2
+import numpy as np
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src/vln_core")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src/vln_policy")))
@@ -25,9 +29,186 @@ from vln_core.episode_manager import EpisodeManager, EpisodeManagerConfig
 from vln_core.episode_scenario import EpisodeScenario, SuccessRegion
 from vln_core.evaluator import EpisodeResult, VlnEvaluator
 from vln_core.safety_filter import SafetyFilter, SafetyFilterConfig
-from vln_policy.spatial_reasoning_policy import ReasoningState, SpatialReasoningConfig, SpatialReasoningPolicy
+from vln_policy.spatial_reasoning_policy import (
+    ReasoningState,
+    SpatialReasoningConfig,
+    SpatialReasoningPolicy,
+)
 from vln_sim.bridge_core import SimAgentPose
 from vln_sim.mock_scene_adapter import MockSceneAdapter
+
+
+def render_hud_overlay(
+    rgb: np.ndarray,
+    step: int,
+    sim_time: float,
+    state_str: str,
+    linear_v: float,
+    angular_w: float,
+    stop_prob: float,
+    pose: SimAgentPose,
+    instruction: str,
+    goal_dist: float,
+    sectors: list,
+    info: dict,
+) -> np.ndarray:
+    """Renders a head-up display (HUD) overlay on the 640x480 first-person frame."""
+    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+    h, w = bgr.shape[:2]
+
+    # Semi-transparent top header bar
+    header_overlay = bgr.copy()
+    cv2.rectangle(header_overlay, (0, 0), (w, 54), (20, 20, 20), -1)
+    cv2.addWeighted(header_overlay, 0.75, bgr, 0.25, 0, bgr)
+
+    # Top title and instruction
+    cv2.putText(
+        bgr,
+        "XJTLU VLN-E2E | Limited-FOV Low Chassis (h=0.45m)",
+        (12, 20),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.50,
+        (255, 200, 100),
+        1,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        bgr,
+        f'Prompt: "{instruction}"',
+        (12, 42),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.45,
+        (220, 240, 255),
+        1,
+        cv2.LINE_AA,
+    )
+
+    # Telemetry box on bottom-left
+    box_overlay = bgr.copy()
+    cv2.rectangle(box_overlay, (10, h - 145), (290, h - 10), (15, 15, 15), -1)
+    cv2.addWeighted(box_overlay, 0.70, bgr, 0.30, 0, bgr)
+    cv2.rectangle(bgr, (10, h - 145), (290, h - 10), (80, 80, 80), 1)
+
+    # State badge color
+    state_color = (0, 220, 255)  # Yellow default
+    if state_str == "APPROACH":
+        state_color = (80, 255, 80)  # Green
+    elif state_str in ("VERIFY", "STOP"):
+        state_color = (50, 120, 255)  # Orange/Red
+    elif state_str == "ORIENT":
+        state_color = (255, 160, 50)  # Blue
+
+    cv2.putText(
+        bgr,
+        f"STATE: {state_str}",
+        (18, h - 122),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        state_color,
+        2,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        bgr,
+        f"Time: {sim_time:4.1f}s | Step: {step:3d}",
+        (18, h - 98),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.44,
+        (220, 220, 220),
+        1,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        bgr,
+        f"Cmd: v={linear_v:4.2f}m/s, w={angular_w:+4.2f}r/s",
+        (18, h - 76),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.44,
+        (220, 220, 220),
+        1,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        bgr,
+        f"Pose: ({pose.x:.2f}m, {pose.y:.2f}m, {math.degrees(pose.yaw):+.1f} deg)",
+        (18, h - 54),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.44,
+        (200, 200, 200),
+        1,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        bgr,
+        f"Goal Dist: {goal_dist:.2f}m | p_stop: {stop_prob:.2f}",
+        (18, h - 32),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.44,
+        (255, 230, 120),
+        1,
+        cv2.LINE_AA,
+    )
+
+    # 8-Sector Memory Mini-Radar on top-right
+    radar_center = (w - 65, 80)
+    radar_r = 38
+    radar_overlay = bgr.copy()
+    cv2.circle(radar_overlay, radar_center, radar_r + 8, (15, 15, 15), -1)
+    cv2.addWeighted(radar_overlay, 0.70, bgr, 0.30, 0, bgr)
+    cv2.circle(bgr, radar_center, radar_r + 8, (100, 100, 100), 1)
+    cv2.putText(
+        bgr,
+        "SECTOR RADAR",
+        (w - 110, 32),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.35,
+        (200, 200, 200),
+        1,
+        cv2.LINE_AA,
+    )
+
+    # Draw 8 sectors
+    for i, s in enumerate(sectors):
+        # 0 is Front (pointing straight up: -90 deg in image coords)
+        # Clockwise angles
+        angle_deg = s.center_angle_deg - 90.0
+        rad = math.radians(angle_deg)
+        x_end = int(radar_center[0] + radar_r * math.cos(rad))
+        y_end = int(radar_center[1] + radar_r * math.sin(rad))
+
+        prob = min(max(s.target_probability, 0.0), 1.0)
+        # Color from blue (low) to bright green/yellow (high prob)
+        c_val = int(prob * 8.0 * 255)
+        c_val = min(max(c_val, 40), 255)
+        sec_color = (50, c_val, 255 - c_val)
+
+        cv2.line(bgr, radar_center, (x_end, y_end), sec_color, 2)
+        cv2.circle(bgr, (x_end, y_end), 3, sec_color, -1)
+
+    # Robot forward indicator arrow in radar
+    cv2.arrowedLine(
+        bgr,
+        (radar_center[0], radar_center[1] + 8),
+        (radar_center[0], radar_center[1] - 12),
+        (255, 255, 255),
+        2,
+        tipLength=0.35,
+    )
+
+    # Target indicator box if detected
+    if info.get("target_detected", False):
+        cv2.putText(
+            bgr,
+            f"TARGET DETECTED ({info.get('target_confidence', 0.0):.2f})",
+            (w // 2 - 120, h - 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (0, 255, 0),
+            2,
+            cv2.LINE_AA,
+        )
+
+    return bgr
 
 
 def run_simulation(
@@ -35,24 +216,30 @@ def run_simulation(
     instruction: str = "navigate straight through the corridor to find the doorway",
     init_yaw_rad: float = 0.25,
     dt: float = 0.1,
-    max_steps: int = 150,
+    max_steps: int = 250,
+    output_video_path: str = "recordings/spatial_reasoning_sim.mp4",
 ):
     print("=" * 105)
-    print("         XJTLU VLN-E2E - Limited-FOV Spatial Reasoning Simulation")
+    print("         XJTLU VLN-E2E - Limited-FOV Spatial Reasoning Simulation (HUD Video)")
     print("=" * 105)
     print(f" Episode ID   : {episode_id}")
     print(f" Instruction  : \"{instruction}\"")
     print(f" Camera Mount : Front-facing, Height = 0.45m, HFOV = 90.0°")
     print(f" Initial Pose : x=0.00m, y=0.00m, yaw={init_yaw_rad:+.2f} rad ({math.degrees(init_yaw_rad):+.1f}°)")
-    print(f" Timestep dt  : {dt}s")
+    print(f" Output Video : {output_video_path}")
+    print(f" Timestep dt  : {dt}s | Max Steps: {max_steps}")
     print("-" * 105)
     print(f"{'Step':>5} | {'Sim Time':>8} | {'State':^16} | {'Pose (x, y, yaw)':^23} | {'Raw (v, w)':^16} | {'Safe (v, w)':^16} | {'p_stop':>6}")
     print("-" * 105)
 
+    os.makedirs(os.path.dirname(output_video_path) or ".", exist_ok=True)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    video_writer = cv2.VideoWriter(output_video_path, fourcc, 10.0, (640, 480))
+
     sim = MockSceneAdapter(width=640, height=480)
     obs = sim.reset(SimAgentPose(x=0.0, y=0.0, yaw=init_yaw_rad))
 
-    policy = SpatialReasoningPolicy(SpatialReasoningConfig())
+    policy = SpatialReasoningPolicy(SpatialReasoningConfig(max_episode_steps=max_steps))
     policy.reset(episode_id=episode_id)
 
     adapter = ActionAdapter()
@@ -67,18 +254,18 @@ def run_simulation(
         )
     )
 
-    manager = EpisodeManager(EpisodeManagerConfig(max_duration_sec=30.0, max_steps=max_steps))
+    manager = EpisodeManager(EpisodeManagerConfig(max_duration_sec=35.0, max_steps=max_steps))
     manager.start_episode(episode_id=episode_id, instruction=instruction, monotonic_now=0.0)
 
+    goal_x, goal_y = 3.0, 0.0
     scenario = EpisodeScenario(
         scenario_id="corridor_doorway_01",
         instruction=instruction,
         start_x=0.0,
         start_y=0.0,
         start_yaw=init_yaw_rad,
-        success_region=SuccessRegion(center_x=3.0, center_y=0.0, radius=0.8),
+        success_region=SuccessRegion(center_x=goal_x, center_y=goal_y, radius=0.8),
     )
-
 
     trajectory: List[Tuple[float, float]] = [(sim.pose.x, sim.pose.y)]
     velocity_commands: List[Tuple[float, float]] = []
@@ -90,6 +277,8 @@ def run_simulation(
     termination_reason = "max_steps"
 
     for step in range(1, max_steps + 1):
+        goal_dist = math.hypot(sim.pose.x - goal_x, sim.pose.y - goal_y)
+
         # 1. Perception & Spatial Reasoning
         act, info = policy.step(obs.rgb, instruction=instruction, episode_id=episode_id)
         inference_latencies_ms.append(act.inference_latency_ms)
@@ -118,13 +307,30 @@ def run_simulation(
         if getattr(obs, "is_collision", False):
             collision_count += 1
 
+        state_str = info.get("state", policy.state.value)
+
+        # 5. Render HUD Overlay frame to video
+        hud_frame = render_hud_overlay(
+            rgb=obs.rgb,
+            step=step,
+            sim_time=sim_time,
+            state_str=state_str,
+            linear_v=safe_twist.linear_x,
+            angular_w=safe_twist.angular_z,
+            stop_prob=act.stop_probability,
+            pose=sim.pose,
+            instruction=instruction,
+            goal_dist=goal_dist,
+            sectors=policy.memory.sectors,
+            info=info,
+        )
+        video_writer.write(hud_frame)
 
         pose_str = f"({sim.pose.x:5.2f}, {sim.pose.y:5.2f}, {math.degrees(sim.pose.yaw):+5.1f}°)"
         raw_str = f"({act.linear_velocity:4.2f}, {act.angular_velocity:+4.2f})"
         safe_str = f"({safe_twist.linear_x:4.2f}, {safe_twist.angular_z:+4.2f})"
-        state_str = info.get("state", policy.state.value)
 
-        if step <= 5 or step % 5 == 0 or finished or policy.state in (ReasoningState.VERIFY, ReasoningState.STOP):
+        if step <= 5 or step % 10 == 0 or finished or policy.state in (ReasoningState.VERIFY, ReasoningState.STOP):
             print(f"{step:5d} | {sim_time:7.2f}s | {state_str:^16} | {pose_str:^23} | {raw_str:^16} | {safe_str:^16} | {act.stop_probability:6.2f}")
 
         if finished or policy.state == ReasoningState.STOP:
@@ -137,6 +343,8 @@ def run_simulation(
         obs = sim.step(safe_twist.linear_x, safe_twist.angular_z, dt)
         sim_time += dt
 
+    video_writer.release()
+    print(f"\n[+] Video saved to: {os.path.abspath(output_video_path)}")
 
     result = EpisodeResult(
         scenario_id=scenario.scenario_id,
