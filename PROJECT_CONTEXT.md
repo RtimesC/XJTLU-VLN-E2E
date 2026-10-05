@@ -1,45 +1,42 @@
-# VLN 科研项目核心上下文
+# VLN 科研项目核心上下文与技术全景图
 
-## 当前阶段
+## 1. 当前阶段与核心进展
 
-团队目前处于文献阅读、方法比较、仿真复现和研究问题探索阶段。不要提前把任何分支、动作空间、地图使用方式或模型架构当成最终方案。
+- **空间推理分支 (`spatial-intelligence-reasoning`)**：
+  - 已实现自车中心 8 扇区拓扑工作记忆 ([`SpatialSectorMemory`](file:///Users/sousuke/Desktop/XJTLU-VLN-E2E/src/vln_policy/vln_policy/spatial_reasoning_policy.py))。
+  - 已实现针对 0.45m 低视角的近场遮挡评估与开阔通道推断 ([`LimitedFovVisualGrounder`](file:///Users/sousuke/Desktop/XJTLU-VLN-E2E/src/vln_policy/vln_policy/spatial_reasoning_policy.py))。
+  - 已跑通完整的 `ORIENT` -> `INFERRED_EXPLORE` -> `APPROACH` -> `VERIFY` -> `STOP` 状态机闭环，并接入车载 HUD 仪表盘与 MP4 录制。
+  - 本地全部 56 个单元测试 100% 通过（`pytest`，执行耗时 ~0.3s）。
+- **仿真基座 (`habitat-lab`)**：
+  - 已在专属分支 `xjtlu-vln` 完成低底盘小车（0.45m 相机高度、0.38625m 半径、RGB-D 640x480、4x4 位姿矩阵）专属包装器 `XJTLUCarEnv` 开发与验证。
+  - 已通过真实 3D 场景 `skokloster-castle.glb` 验证。
 
-## 研究方向
+## 2. 仓库与双端架构
 
-- 3D Gaussian Splatting 与 VLN；
-- 空间智能、空间推理与有限视角理解；
-- 视觉语言导航中的记忆、空间表示和动作决策；
-- Habitat-HM3D 中的原始任务和动作空间复现。
+- **`XJTLU-VLN-E2E`**：主开发仓库（算法、策略、评测）。
+- **`habitat-lab`**：外部仿真引擎（通过 `pip install -e habitat-lab` 安装在 `habitat_vln` Conda 环境中）。
+- **双端分工**：
+  - **Mac**：策略算法编写、数学推导、重构、快速单测（不运行真实 3D GPU 渲染）；
+  - **Linux**：同步 Mac 代码，拉起 NVIDIA 显卡与 Habitat 3D OpenGL 引擎跑真实室内场景仿真与视频录制。
 
-## 当前范围排除项
+## 3. 常用运行与测试指令
 
-真实车辆、底盘、ROS 运行链路、硬件参数、实车安全和部署暂时不属于当前研究范围。相关代码和文档只保留，不在当前文献与仿真实验中修改或扩展。
+### 在 Mac 本地验证测试套件：
+```bash
+pytest
+# 运行极速 Mock 闭环仿真
+python3 scripts/run_spatial_reasoning_sim_loop.py
+```
 
-## 尚未确定
+### 在 Linux 机器运行真实 3D Habitat 闭环仿真：
+```bash
+cd ~/Desktop/XJTLU-VLN-E2E
+conda activate habitat_vln
+git pull origin spatial-intelligence-reasoning
+python scripts/run_spatial_reasoning_sim_loop.py --scene /home/sousuke/Desktop/habitat-lab/data/scene_datasets/habitat-test-scenes/skokloster-castle.glb
+```
 
-- 最终要解决的具体困难；
-- 是否使用显式地图、3DGS 或空间记忆；
-- 动作空间采用离散动作、waypoint 还是连续控制；
-- 训练数据、评价指标和真实部署形式。
+## 4. 下一步研发候选
 
-## 当前任务候选
-
-先在 Linux Habitat 仓库 `/home/sousuke/habitat-lab` 中核对论文原始任务、观测、动作空间、停止条件和评价指标。这个复现任务是当前候选优先事项，具体实验范围仍需根据论文和资源情况调整。
-
-## 已知环境背景
-
-- Linux：Ubuntu 22.04；
-- ROS 2：Humble；
-- 机器人：前视视觉输入；
-- 具体硬件型号、相机参数和最终部署参数：待核实。
-
-## 讨论规则
-
-每次讨论区分：
-
-1. 论文事实和实验结果；
-2. 当前仓库已实现内容；
-3. 尚未验证的研究假设；
-4. 针对某个实验条件的临时方案。
-
-新对话请先读取本文件、AGENTS.md 和 README.md，再说明当前问题属于哪个阶段、哪些事实已确认、哪些内容仍不确定。
+1. **`3dgs-vln` 分支开发**：基于 0.45m 高度 RGB-D 和 4x4 位姿，实现三维高斯点云反投影与增量记忆场。
+2. **HM3D 数据集接入**：在 Linux 上加载真实居家户型，评测长距离语言导航任务。
