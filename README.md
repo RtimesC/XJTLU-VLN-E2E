@@ -27,5 +27,6 @@
 ## 文档
 
 - [项目核心上下文](PROJECT_CONTEXT.md)
-- [项目核心上下文](PROJECT_CONTEXT.md)
+- [AI Agent 协作行为准则与红线](AGENTS.md)
 - [ROS 2 接口契约](docs/ros_interface_contract.md)
+

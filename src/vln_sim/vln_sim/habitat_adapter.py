@@ -61,16 +61,26 @@ class HabitatSimAdapter(BaseSimAdapter):
         cfg = habitat_sim.Configuration(backend_cfg, [agent_cfg])
         self._sim = habitat_sim.Simulator(cfg)
 
-    def reset(self) -> SimObservation:
-        self.pose = SimAgentPose(z=self.sensor_height)
+    def reset(self, init_pose: Optional[SimAgentPose] = None) -> SimObservation:
+        self.pose = init_pose if init_pose is not None else SimAgentPose(z=self.sensor_height)
         self._step_counter = 0
         obs = self._sim.reset()
+        if init_pose is not None and self._sim is not None:
+            agent = self._sim.get_agent(0)
+            state = agent.get_state()
+            state.position = np.array([self.pose.x, self.pose.z, self.pose.y])
+            half_yaw = self.pose.yaw / 2.0
+            if hasattr(np, 'quaternion'):
+                state.rotation = np.quaternion(np.cos(half_yaw), 0, np.sin(half_yaw), 0)
+            agent.set_state(state)
+            obs = self._sim.get_sensor_observations()
         rgb = obs["color_sensor"][:, :, :3]
         return SimObservation(
             rgb=rgb,
             timestamp_sec=time.time(),
             step_index=0,
         )
+
 
     def step(self, linear_velocity: float, angular_velocity: float, dt: float) -> SimObservation:
         self.pose = integrate_differential_drive(self.pose, linear_velocity, angular_velocity, dt)
