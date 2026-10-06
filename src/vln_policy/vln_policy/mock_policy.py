@@ -76,7 +76,7 @@ class MockPolicy:
         """Performs one step of policy prediction.
 
         Returns:
-            PolicyActionData adhering to ros_interface_contract.md.
+            PolicyActionData using the current ROS message fields.
         """
         self._step_counter += 1
         stamp = obs_stamp_sec if obs_stamp_sec is not None else time.time()
