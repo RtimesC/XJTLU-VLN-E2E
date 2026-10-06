@@ -113,6 +113,7 @@ class HabitatSimAdapter(BaseSimAdapter):
             urdf_path,
             fixed_base=True,
             maintain_link_order=True,
+            light_setup_key="no_lights",
         )
         self._position_visual_spot(visible=False)
 
