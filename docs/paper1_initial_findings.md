@@ -45,3 +45,20 @@ constraint.
 This remains a candidate until the SAM2+CLIP backend is available and the same
 three-scene ablations compare geometry-only, semantic grouping, and uncertainty
 aware policies.
+
+## SAM2 + CLIP evidence
+
+The checkpoint-backed backend is now runnable offline in `habitat_vln`. Short
+HM3D runs produced the following semantic coverage:
+
+| Scene | Steps | Gaussian count | Semantic groups | Collisions |
+|---|---:|---:|---:|---:|
+| `TEEsavR23oF` | 3 | 2205 | 1808 | 0 |
+| `HaxA7YrQdEC` | 3 | 210 | 124 | 0 |
+| `wcojb4TFT35` | 3 | 1368 | 1363 | 0 |
+| `HaxA7YrQdEC` | 10 | 262 | 169 | 0 |
+
+The semantic pipeline is therefore no longer a placeholder. The scene with
+the smallest map remains the least observable, and its semantic coverage is
+also lower. This supports prioritizing uncertainty/coverage-aware observation
+and recovery over adding a larger action head as the first engineering study.
