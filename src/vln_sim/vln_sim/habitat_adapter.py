@@ -77,6 +77,13 @@ class HabitatSimAdapter(BaseSimAdapter):
         camera_sensor_spec.position = [0.0, self.sensor_height, 0.0]
         camera_sensor_spec.hfov = self.hfov
 
+        depth_sensor_spec = habitat_sim.CameraSensorSpec()
+        depth_sensor_spec.uuid = "depth_sensor"
+        depth_sensor_spec.sensor_type = habitat_sim.SensorType.DEPTH
+        depth_sensor_spec.resolution = [self.height, self.width]
+        depth_sensor_spec.position = [0.0, self.sensor_height, 0.0]
+        depth_sensor_spec.hfov = self.hfov
+
         # Visualization-only chase camera. The policy still receives only color_sensor.
         third_person_spec = habitat_sim.CameraSensorSpec()
         third_person_spec.uuid = "third_person_sensor"
@@ -92,7 +99,7 @@ class HabitatSimAdapter(BaseSimAdapter):
         # human-sized defaults.
         agent_cfg.radius = self.AGENT_RADIUS_M
         agent_cfg.height = self.AGENT_HEIGHT_M
-        agent_cfg.sensor_specifications = [camera_sensor_spec, third_person_spec]
+        agent_cfg.sensor_specifications = [camera_sensor_spec, depth_sensor_spec, third_person_spec]
 
         cfg = habitat_sim.Configuration(backend_cfg, [agent_cfg])
         self._sim = habitat_sim.Simulator(cfg)
@@ -147,14 +154,16 @@ class HabitatSimAdapter(BaseSimAdapter):
             mn.Rad(self.pose.yaw), mn.Vector3.y_axis()
         )
 
-    def _capture_views(self) -> tuple[np.ndarray, np.ndarray]:
+    def _capture_views(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         # The policy front camera never sees the visual car. The second render
         # supplies only the chase-camera frame used by the video compositor.
         self._position_visual_spot(visible=False)
-        front = self._sim.get_sensor_observations()["color_sensor"][:, :, :3].copy()
+        observations = self._sim.get_sensor_observations()
+        front = observations["color_sensor"][:, :, :3].copy()
+        depth = observations["depth_sensor"].copy().astype(np.float32)
         self._position_visual_spot(visible=True)
         chase = self._sim.get_sensor_observations()["third_person_sensor"][:, :, :3].copy()
-        return front, chase
+        return front, depth, chase
 
     def reset(self, init_pose: Optional[SimAgentPose] = None) -> SimObservation:
         self.pose = init_pose if init_pose is not None else SimAgentPose()
@@ -169,11 +178,12 @@ class HabitatSimAdapter(BaseSimAdapter):
                 state.rotation = np.quaternion(np.cos(half_yaw), 0, np.sin(half_yaw), 0)
             agent.set_state(state)
             obs = self._sim.get_sensor_observations()
-        rgb, third_person_rgb = self._capture_views()
+        rgb, depth, third_person_rgb = self._capture_views()
         return SimObservation(
             rgb=rgb,
             timestamp_sec=time.time(),
             step_index=0,
+            depth=depth,
             third_person_rgb=third_person_rgb,
         )
 
@@ -213,11 +223,12 @@ class HabitatSimAdapter(BaseSimAdapter):
         state.rotation = np.quaternion(np.cos(half_yaw), 0, np.sin(half_yaw), 0)
         agent.set_state(state)
 
-        rgb, third_person_rgb = self._capture_views()
+        rgb, depth, third_person_rgb = self._capture_views()
         return SimObservation(
             rgb=rgb,
             timestamp_sec=time.time(),
             step_index=self._step_counter,
+            depth=depth,
             third_person_rgb=third_person_rgb,
             is_collision=collided,
         )
