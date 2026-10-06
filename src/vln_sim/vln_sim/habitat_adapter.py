@@ -63,7 +63,9 @@ class HabitatSimAdapter(BaseSimAdapter):
     def _init_sim(self):
         backend_cfg = habitat_sim.SimulatorConfiguration()
         backend_cfg.scene_id = self.scene_path
-        backend_cfg.enable_physics = False
+        # The official Spot URDF is an articulated object and requires the
+        # Bullet backend even when the rover is used as a visual chase entity.
+        backend_cfg.enable_physics = True
 
         # Visual camera sensor (matching physical car camera height 0.45m)
         camera_sensor_spec = habitat_sim.CameraSensorSpec()
