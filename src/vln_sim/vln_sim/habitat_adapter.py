@@ -98,9 +98,6 @@ class HabitatSimAdapter(BaseSimAdapter):
         """Load Habitat-Lab's official Spot articulated robot for chase view."""
         if mn is None:
             raise RuntimeError("Habitat-Sim Magnum bindings are unavailable")
-        from omegaconf import DictConfig
-        from habitat.articulated_agents.robots.spot_robot import SpotRobot
-
         urdf_path = os.environ.get(
             "XJTLU_SPOT_URDF",
             "/home/sousuke/Desktop/habitat-lab/data/robots/hab_spot_arm/urdf/hab_spot_arm.urdf",
@@ -110,13 +107,11 @@ class HabitatSimAdapter(BaseSimAdapter):
                 "SpotRobot asset not found: " + urdf_path +
                 ". Download the official hab_spot_arm dataset first."
             )
-        self._spot_robot = SpotRobot(
-            DictConfig({"articulated_agent_urdf": urdf_path}),
-            self._sim,
+        self._spot_robot = self._sim.get_articulated_object_manager().add_articulated_object_from_urdf(
+            urdf_path,
             fixed_base=True,
+            maintain_link_order=True,
         )
-        self._spot_robot.reconfigure()
-        self._spot_robot.reset()
         self._position_visual_spot(visible=False)
 
     def _position_visual_spot(self, visible: bool) -> None:
@@ -124,11 +119,12 @@ class HabitatSimAdapter(BaseSimAdapter):
         if self._spot_robot is None:
             return
         if not visible:
-            self._spot_robot.sim_obj.translation = mn.Vector3(0.0, -1000.0, 0.0)
+            self._spot_robot.translation = mn.Vector3(0.0, -1000.0, 0.0)
             return
-        self._spot_robot.base_pos = mn.Vector3(self.pose.x, self.pose.z, self.pose.y)
-        self._spot_robot.base_rot = self.pose.yaw
-        self._spot_robot.update()
+        self._spot_robot.translation = mn.Vector3(self.pose.x, self.pose.z, self.pose.y)
+        self._spot_robot.rotation = mn.Quaternion.rotation(
+            mn.Rad(self.pose.yaw), mn.Vector3.y_axis()
+        )
 
     def _capture_views(self) -> tuple[np.ndarray, np.ndarray]:
         # The policy front camera never sees the visual car. The second render
