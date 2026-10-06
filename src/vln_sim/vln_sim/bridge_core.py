@@ -30,6 +30,7 @@ class SimObservation:
     depth: Optional[np.ndarray] = None
     # Visualization-only chase view. The policy must consume ``rgb`` only.
     third_person_rgb: Optional[np.ndarray] = None
+    is_collision: bool = False
 
 
 def integrate_differential_drive(
