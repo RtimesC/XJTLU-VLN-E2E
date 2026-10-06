@@ -61,10 +61,21 @@ class FrozenSamClipBackend:
         cache_dir: str | None = None,
     ) -> "FrozenSamClipBackend":
         """Load official SAM2 and frozen Transformers CLIP lazily on Linux."""
+        from pathlib import Path
+        import sam2
         from sam2.build_sam import build_sam2
         from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
         from transformers import CLIPModel, CLIPProcessor
 
+        config_path = Path(sam2_config)
+        if config_path.is_absolute() and config_path.exists():
+            package_root = Path(sam2.__path__[0]).resolve()
+            try:
+                sam2_config = str(config_path.resolve().relative_to(package_root))
+            except ValueError as exc:
+                raise ValueError(
+                    f"SAM2 config must live under the installed sam2 package: {config_path}"
+                ) from exc
         sam_model = build_sam2(sam2_config, sam2_checkpoint, device=device, mode="eval")
         # Fewer points keeps the 10 Hz navigation loop bounded while retaining
         # instance-level masks for the protocol experiment.
