@@ -26,6 +26,8 @@ class HabitatSimAdapter(BaseSimAdapter):
 
     AGENT_RADIUS_M = 0.38625
     AGENT_HEIGHT_M = 0.5
+    # The URDF root is near the Spot body center; navmesh z is the floor.
+    SPOT_ROOT_HEIGHT_M = 0.70
 
     def __init__(
         self,
@@ -138,7 +140,9 @@ class HabitatSimAdapter(BaseSimAdapter):
         if not visible:
             self._spot_robot.translation = mn.Vector3(0.0, -1000.0, 0.0)
             return
-        self._spot_robot.translation = mn.Vector3(self.pose.x, self.pose.z, self.pose.y)
+        self._spot_robot.translation = mn.Vector3(
+            self.pose.x, self.pose.z + self.SPOT_ROOT_HEIGHT_M, self.pose.y
+        )
         self._spot_robot.rotation = mn.Quaternion.rotation(
             mn.Rad(self.pose.yaw), mn.Vector3.y_axis()
         )
