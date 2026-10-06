@@ -7,8 +7,10 @@ from typing import Optional
 import numpy as np
 
 try:
+    import magnum as mn
     from magnum import Vector3
 except ImportError:  # pragma: no cover - only exercised in Habitat-Sim envs
+    mn = None
     Vector3 = None
 
 from .bridge_core import BaseSimAdapter, SimAgentPose, SimObservation, integrate_differential_drive
@@ -53,6 +55,7 @@ class HabitatSimAdapter(BaseSimAdapter):
         self.sensor_height = sensor_height
 
         self._sim = None
+        self._visual_car_parts = []
         self._step_counter = 0
         self.pose = SimAgentPose()
         self._init_sim()
@@ -88,6 +91,54 @@ class HabitatSimAdapter(BaseSimAdapter):
 
         cfg = habitat_sim.Configuration(backend_cfg, [agent_cfg])
         self._sim = habitat_sim.Simulator(cfg)
+        self._create_visual_car()
+
+    def _create_visual_car(self) -> None:
+        """Create a non-colliding 3D car that is rendered only for chase view."""
+        if mn is None:
+            raise RuntimeError("Habitat-Sim Magnum bindings are unavailable")
+        templates = self._sim.get_object_template_manager()
+        objects = self._sim.get_rigid_object_manager()
+        # Offsets and half extents in the agent frame. This is a visual-only
+        # mesh; the simulator's configured agent radius remains authoritative.
+        parts = (
+            ("body", (0.0, 0.17, 0.0), (0.29, 0.14, 0.34)),
+            ("roof", (0.0, 0.37, 0.06), (0.21, 0.10, 0.20)),
+            ("wheel_fl", (-0.30, 0.09, -0.22), (0.05, 0.09, 0.09)),
+            ("wheel_fr", (0.30, 0.09, -0.22), (0.05, 0.09, 0.09)),
+            ("wheel_rl", (-0.30, 0.09, 0.22), (0.05, 0.09, 0.09)),
+            ("wheel_rr", (0.30, 0.09, 0.22), (0.05, 0.09, 0.09)),
+        )
+        for name, offset, half_extents in parts:
+            template = templates.get_template_by_handle("cubeSolid")
+            template.scale = mn.Vector3(*half_extents)
+            template.is_collidable = False
+            handle = f"xjtlu_visual_car_{name}"
+            templates.register_template(template, handle)
+            obj = objects.add_object_by_template_handle(handle)
+            obj.motion_type = habitat_sim.physics.MotionType.KINEMATIC
+            obj.collidable = False
+            self._visual_car_parts.append((obj, mn.Vector3(*offset)))
+        self._position_visual_car(visible=False)
+
+    def _position_visual_car(self, visible: bool) -> None:
+        """Move the car to the agent pose or park it outside the scene."""
+        if not self._visual_car_parts:
+            return
+        rotation = mn.Quaternion.rotation(mn.Rad(self.pose.yaw), mn.Vector3.y_axis())
+        base = mn.Vector3(self.pose.x, self.pose.z, self.pose.y)
+        for obj, offset in self._visual_car_parts:
+            obj.translation = base + rotation.transform_vector(offset) if visible else mn.Vector3(0.0, -1000.0, 0.0)
+            obj.rotation = rotation
+
+    def _capture_views(self) -> tuple[np.ndarray, np.ndarray]:
+        # The policy front camera never sees the visual car. The second render
+        # supplies only the chase-camera frame used by the video compositor.
+        self._position_visual_car(visible=False)
+        front = self._sim.get_sensor_observations()["color_sensor"][:, :, :3].copy()
+        self._position_visual_car(visible=True)
+        chase = self._sim.get_sensor_observations()["third_person_sensor"][:, :, :3].copy()
+        return front, chase
 
     def reset(self, init_pose: Optional[SimAgentPose] = None) -> SimObservation:
         self.pose = init_pose if init_pose is not None else SimAgentPose()
@@ -102,8 +153,7 @@ class HabitatSimAdapter(BaseSimAdapter):
                 state.rotation = np.quaternion(np.cos(half_yaw), 0, np.sin(half_yaw), 0)
             agent.set_state(state)
             obs = self._sim.get_sensor_observations()
-        rgb = obs["color_sensor"][:, :, :3]
-        third_person_rgb = obs["third_person_sensor"][:, :, :3]
+        rgb, third_person_rgb = self._capture_views()
         return SimObservation(
             rgb=rgb,
             timestamp_sec=time.time(),
@@ -137,9 +187,7 @@ class HabitatSimAdapter(BaseSimAdapter):
         state.rotation = np.quaternion(np.cos(half_yaw), 0, np.sin(half_yaw), 0)
         agent.set_state(state)
 
-        obs = self._sim.get_sensor_observations()
-        rgb = obs["color_sensor"][:, :, :3]
-        third_person_rgb = obs["third_person_sensor"][:, :, :3]
+        rgb, third_person_rgb = self._capture_views()
         return SimObservation(
             rgb=rgb,
             timestamp_sec=time.time(),
