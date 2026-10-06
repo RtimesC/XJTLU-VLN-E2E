@@ -115,6 +115,9 @@ class HabitatSimAdapter(BaseSimAdapter):
             maintain_link_order=True,
             light_setup_key="no_lights",
         )
+        # Chase-view entity only: follow the simulated pose explicitly and do
+        # not let Bullet solve the articulated legs against the HM3D mesh.
+        self._spot_robot.motion_type = habitat_sim.physics.MotionType.KINEMATIC
         self._position_visual_spot(visible=False)
 
     def _position_visual_spot(self, visible: bool) -> None:
