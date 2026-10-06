@@ -94,7 +94,21 @@ class HabitatSimAdapter(BaseSimAdapter):
 
         cfg = habitat_sim.Configuration(backend_cfg, [agent_cfg])
         self._sim = habitat_sim.Simulator(cfg)
+        self._ensure_navmesh()
         self._create_visual_car()
+
+    def _ensure_navmesh(self) -> None:
+        """Build a vehicle-sized navmesh when the scene has no baked mesh."""
+        if self._sim.pathfinder.is_loaded:
+            return
+        settings = habitat_sim.NavMeshSettings()
+        settings.agent_radius = self.AGENT_RADIUS_M
+        settings.agent_height = self.AGENT_HEIGHT_M
+        settings.include_static_objects = True
+        if not self._sim.recompute_navmesh(self._sim.pathfinder, settings):
+            raise RuntimeError(
+                f"Could not build a navmesh for Habitat scene: {self.scene_path}"
+            )
 
     def _create_visual_car(self) -> None:
         """Create a non-colliding, wheeled rover for the chase view."""
@@ -189,6 +203,8 @@ class HabitatSimAdapter(BaseSimAdapter):
         """Check the vehicle base position against Habitat's navmesh."""
         if Vector3 is None:
             raise RuntimeError("Habitat-Sim Magnum bindings are unavailable")
+        if not self._sim.pathfinder.is_loaded:
+            return False
         point = Vector3(float(pose.x), float(pose.z), float(pose.y))
         return bool(self._sim.pathfinder.is_navigable(point))
 
