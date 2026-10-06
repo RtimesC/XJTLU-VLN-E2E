@@ -25,7 +25,7 @@ for package in ("vln_core", "vln_policy", "vln_sim"):
 from vln_core.experiment_protocol import ExperimentRecord, write_jsonl
 from vln_policy.gaussian_map import GaussianMap, GaussianMapConfig
 from vln_policy.multi_level_action import MultiLevelActionPredictor
-from vln_policy.open_set_grouping import GeometricGroupingBackend, OpenSetSemanticGrouper
+from vln_policy.open_set_grouping import FrozenSamClipBackend, GeometricGroupingBackend, OpenSetSemanticGrouper
 from vln_policy.paper1_pipeline import Paper1Pipeline
 from vln_sim.bridge_core import SimAgentPose
 from vln_sim.habitat_adapter import HabitatSimAdapter
@@ -59,16 +59,17 @@ def main() -> None:
     parser.add_argument("--instruction", default="navigate straight through the corridor")
     parser.add_argument("--action-mode", choices=("discrete", "continuous"), default="discrete")
     parser.add_argument("--semantic-backend", choices=("geometry", "sam2clip"), default="geometry")
+    parser.add_argument("--sam2-config", default="/tmp/sam2-src/sam2/configs/sam2/sam2_hiera_t.yaml")
+    parser.add_argument("--sam2-checkpoint", default="/home/sousuke/models/sam2/sam2_hiera_tiny.pt")
+    parser.add_argument("--clip-model", default="openai/clip-vit-base-patch32")
+    parser.add_argument("--model-cache", default="/home/sousuke/models/huggingface")
+    parser.add_argument("--semantic-query", action="append", default=None)
     parser.add_argument("--output", default="artifacts/paper1_hm3d/record.jsonl")
     args = parser.parse_args()
     if args.steps <= 0:
         parser.error("--steps must be positive")
     np.random.seed(args.seed)
-    if args.semantic_backend == "sam2clip":
-        raise RuntimeError(
-            "SAM2+CLIP backend requested, but no checkpoint-backed implementation is installed. "
-            "Run with --semantic-backend geometry for the explicit geometry baseline."
-        )
+    semantic_queries = tuple(args.semantic_query or ("door", "chair", "table", "sofa", "bed", "wall", "floor"))
 
     sim = HabitatSimAdapter(args.scene)
     try:
@@ -76,11 +77,15 @@ def main() -> None:
         obs = sim.reset(start)
         width, height, hfov, sensor_height = 640, 480, 90.0, 0.45
         intrinsics = _camera_intrinsics(width, height, hfov)
-        pipeline = Paper1Pipeline(
-            GaussianMap(GaussianMapConfig()),
-            OpenSetSemanticGrouper(GeometricGroupingBackend()),
-            MultiLevelActionPredictor(),
-        )
+        if args.semantic_backend == "sam2clip":
+            backend = FrozenSamClipBackend.from_pretrained(
+                args.sam2_config, args.sam2_checkpoint, args.clip_model,
+                device="cuda" if __import__("torch").cuda.is_available() else "cpu",
+                cache_dir=args.model_cache,
+            )
+        else:
+            backend = GeometricGroupingBackend()
+        pipeline = Paper1Pipeline(GaussianMap(GaussianMapConfig()), OpenSetSemanticGrouper(backend), MultiLevelActionPredictor())
         raw_actions, safe_actions, executed_actions, trajectory = [], [], [], []
         collisions = 0
         for step in range(args.steps):
@@ -88,7 +93,7 @@ def main() -> None:
             rgb, depth = obs.rgb, obs.depth
             if depth is None:
                 raise RuntimeError("Habitat adapter did not provide depth_sensor observations")
-            result = pipeline.step(rgb, depth, intrinsics, pose_matrix, args.instruction, step)
+            result = pipeline.step(rgb, depth, intrinsics, pose_matrix, args.instruction, step, semantic_queries)
             v, w, stop = pipeline.predictor.to_continuous(result.action)
             raw = {"action": result.action.name, "v": v, "omega": w, "stop": stop}
             raw_actions.append(raw)
@@ -116,8 +121,12 @@ def main() -> None:
             safe_actions=safe_actions,
             executed_actions=executed_actions,
             trajectory=trajectory,
-            metrics={"map_size": float(len(pipeline.gaussian_map)), "collisions": float(collisions)},
-            failure_tags=["semantic_grouping_failure"] if not pipeline.gaussian_map.primitives else [],
+            metrics={
+                "map_size": float(len(pipeline.gaussian_map)),
+                "collisions": float(collisions),
+                "semantic_group_count": float(sum(p.semantic_group != "unknown" for p in pipeline.gaussian_map.primitives)),
+            },
+            failure_tags=["semantic_grouping_failure"] if args.semantic_backend == "geometry" else [],
         )
         write_jsonl([record], args.output)
         print(json.dumps({"output": str(Path(args.output).resolve()), "map_size": len(pipeline.gaussian_map), "collisions": collisions}))

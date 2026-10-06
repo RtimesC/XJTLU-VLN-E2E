@@ -37,6 +37,8 @@ class Paper1Pipeline:
         semantic_queries: tuple[str, ...] = (),
     ) -> Paper1Step:
         projected = self.gaussian_map.update(rgb, depth, intrinsics, camera_pose, step)
-        groups = self.grouper.group(rgb, self.gaussian_map, semantic_queries)
+        groups = self.grouper.group(
+            rgb, self.gaussian_map, semantic_queries, intrinsics=intrinsics, camera_pose=camera_pose
+        )
         action = self.predictor.predict(instruction, self.gaussian_map)
         return Paper1Step(action, len(self.gaussian_map), projected, groups)
