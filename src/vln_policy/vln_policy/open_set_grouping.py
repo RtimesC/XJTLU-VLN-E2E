@@ -45,11 +45,12 @@ class FrozenSamClipBackend:
     cannot silently turn a paper experiment into a geometry-only result.
     """
 
-    def __init__(self, sam2_model: object, clip_processor: object, clip_model: object, device: str = "cpu") -> None:
+    def __init__(self, sam2_model: object, clip_processor: object, clip_model: object, device: str = "cpu", max_regions: int = 32) -> None:
         self.sam2_model = sam2_model
         self.clip_processor = clip_processor
         self.clip_model = clip_model
         self.device = device
+        self.max_regions = max_regions
 
     @classmethod
     def from_pretrained(
@@ -96,8 +97,10 @@ class FrozenSamClipBackend:
         masks = self.sam2_model.generate(np.asarray(rgb, dtype=np.uint8))
         if not masks:
             return []
+        masks = sorted(masks, key=lambda item: float(item.get("predicted_iou", 0.0)), reverse=True)[: self.max_regions]
         image = Image.fromarray(np.asarray(rgb, dtype=np.uint8))
-        results: list[RegionObservation] = []
+        crops: list[Image.Image] = []
+        valid_masks: list[tuple[np.ndarray, float]] = []
         for mask_item in masks:
             mask = np.asarray(mask_item["segmentation"], dtype=bool)
             ys, xs = np.where(mask)
@@ -107,21 +110,28 @@ class FrozenSamClipBackend:
             crop = np.asarray(image)[y0:y1, x0:x1].copy()
             local_mask = mask[y0:y1, x0:x1]
             crop[~local_mask] = 0
-            if queries:
-                inputs = self.clip_processor(
-                    text=list(queries), images=Image.fromarray(crop), return_tensors="pt", padding=True
-                )
-                inputs = {key: value.to(self.device) for key, value in inputs.items()}
-                with torch.inference_mode():
-                    outputs = self.clip_model(**inputs)
-                    scores = outputs.logits_per_image[0].softmax(dim=-1)
-                    index = int(torch.argmax(scores).item())
-                    feature = outputs.image_embeds[0].detach().float().cpu().numpy()
-                    confidence = float(scores[index].item())
-                label = queries[index]
-            else:
-                label, feature, confidence = "unknown", None, float(mask_item.get("predicted_iou", 0.0))
-            results.append(RegionObservation(mask, label, feature, confidence))
+            crops.append(Image.fromarray(crop))
+            valid_masks.append((mask, float(mask_item.get("predicted_iou", 0.0))))
+        if not queries:
+            return [RegionObservation(mask, "unknown", None, score) for mask, score in valid_masks]
+        with torch.inference_mode():
+            image_inputs = self.clip_processor(images=crops, return_tensors="pt")
+            text_inputs = self.clip_processor(text=list(queries), return_tensors="pt", padding=True)
+            image_inputs = {key: value.to(self.device) for key, value in image_inputs.items()}
+            text_inputs = {key: value.to(self.device) for key, value in text_inputs.items()}
+            image_features = self.clip_model.get_image_features(**image_inputs)
+            text_features = self.clip_model.get_text_features(**text_inputs)
+            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            scores = image_features @ text_features.T
+            probabilities = scores.softmax(dim=-1)
+        results: list[RegionObservation] = []
+        for row, (mask, sam_score) in zip(range(len(valid_masks)), valid_masks):
+            index = int(torch.argmax(probabilities[row]).item())
+            results.append(RegionObservation(
+                mask, queries[index], image_features[row].detach().float().cpu().numpy(),
+                float(probabilities[row, index].item() * sam_score),
+            ))
         return results
 
 
