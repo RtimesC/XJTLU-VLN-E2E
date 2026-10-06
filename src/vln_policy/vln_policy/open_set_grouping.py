@@ -84,8 +84,12 @@ class FrozenSamClipBackend:
             sam_model, points_per_side=16, points_per_batch=32, pred_iou_thresh=0.75,
             stability_score_thresh=0.85, min_mask_region_area=64,
         )
-        processor = CLIPProcessor.from_pretrained(clip_model_name_or_path, cache_dir=cache_dir)
-        clip_model = CLIPModel.from_pretrained(clip_model_name_or_path, cache_dir=cache_dir)
+        processor = CLIPProcessor.from_pretrained(
+            clip_model_name_or_path, cache_dir=cache_dir, local_files_only=True
+        )
+        clip_model = CLIPModel.from_pretrained(
+            clip_model_name_or_path, cache_dir=cache_dir, local_files_only=True
+        )
         clip_model.to(device).eval()
         return cls(mask_generator, processor, clip_model, device)
 
