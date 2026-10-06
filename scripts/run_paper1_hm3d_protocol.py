@@ -58,11 +58,17 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--instruction", default="navigate straight through the corridor")
     parser.add_argument("--action-mode", choices=("discrete", "continuous"), default="discrete")
+    parser.add_argument("--semantic-backend", choices=("geometry", "sam2clip"), default="geometry")
     parser.add_argument("--output", default="artifacts/paper1_hm3d/record.jsonl")
     args = parser.parse_args()
     if args.steps <= 0:
         parser.error("--steps must be positive")
     np.random.seed(args.seed)
+    if args.semantic_backend == "sam2clip":
+        raise RuntimeError(
+            "SAM2+CLIP backend requested, but no checkpoint-backed implementation is installed. "
+            "Run with --semantic-backend geometry for the explicit geometry baseline."
+        )
 
     sim = HabitatSimAdapter(args.scene)
     try:
@@ -104,7 +110,7 @@ def main() -> None:
             seed=args.seed,
             camera_config={"width": width, "height": height, "hfov": hfov, "sensor_height": sensor_height},
             agent_config={"radius": sim.AGENT_RADIUS_M, "height": sim.AGENT_HEIGHT_M, "dt": 0.1},
-            map_config={"voxel_size": pipeline.gaussian_map.config.voxel_size, "backend": "geometry_only"},
+            map_config={"voxel_size": pipeline.gaussian_map.config.voxel_size, "semantic_backend": args.semantic_backend},
             policy_config={"pipeline": "ESM_OSG_MAP", "action_mode": args.action_mode, "instruction": args.instruction},
             raw_actions=raw_actions,
             safe_actions=safe_actions,
