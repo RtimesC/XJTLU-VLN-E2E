@@ -55,9 +55,7 @@ class HabitatSimAdapter(BaseSimAdapter):
         self.sensor_height = sensor_height
 
         self._sim = None
-        self._visual_car_parts = []
-        self._visual_wheels = []
-        self._wheel_spin_rad = 0.0
+        self._spot_robot = None
         self._step_counter = 0
         self.pose = SimAgentPose()
         self._init_sim()
@@ -94,79 +92,56 @@ class HabitatSimAdapter(BaseSimAdapter):
 
         cfg = habitat_sim.Configuration(backend_cfg, [agent_cfg])
         self._sim = habitat_sim.Simulator(cfg)
-        self._create_visual_car()
+        self._create_visual_spot()
 
-    def _create_visual_car(self) -> None:
-        """Create a non-colliding, wheeled rover for the chase view."""
+    def _create_visual_spot(self) -> None:
+        """Load Habitat-Lab's official Spot articulated robot for chase view."""
         if mn is None:
             raise RuntimeError("Habitat-Sim Magnum bindings are unavailable")
-        templates = self._sim.get_object_template_manager()
-        objects = self._sim.get_rigid_object_manager()
-        # The rover is deliberately visual-only. The simulator's configured
-        # agent footprint remains authoritative for navigation and collision.
-        parts = (
-            ("chassis", "cubeSolid", (0.0, 0.16, 0.0), (0.34, 0.12, 0.29), None),
-            ("cover", "cubeSolid", (0.0, 0.33, 0.02), (0.30, 0.045, 0.25), None),
-            ("camera_mount", "cubeSolid", (0.0, 0.43, -0.23), (0.08, 0.055, 0.08), None),
-            ("camera_lens", "cylinderSolid_rings_1_segments_12_halfLen_1_useTexCoords_false_useTangents_false_capEnds_true", (0.0, 0.43, -0.32), (0.045, 0.045, 0.045), "lens"),
-        )
-        for name, primitive, offset, scale, _ in parts:
-            template = templates.get_template_by_handle(primitive)
-            template.scale = mn.Vector3(*scale)
-            template.is_collidable = False
-            handle = f"xjtlu_visual_car_{name}"
-            templates.register_template(template, handle)
-            obj = objects.add_object_by_template_handle(handle)
-            obj.motion_type = habitat_sim.physics.MotionType.KINEMATIC
-            obj.collidable = False
-            self._visual_car_parts.append((obj, mn.Vector3(*offset)))
-        wheel_template = "cylinderSolid_rings_1_segments_12_halfLen_1_useTexCoords_false_useTangents_false_capEnds_true"
-        wheel_specs = (
-            ("wheel_left_front", (-0.34, 0.10, -0.20)),
-            ("wheel_right_front", (0.34, 0.10, -0.20)),
-            ("wheel_left_rear", (-0.34, 0.10, 0.20)),
-            ("wheel_right_rear", (0.34, 0.10, 0.20)),
-        )
-        for name, offset in wheel_specs:
-            template = templates.get_template_by_handle(wheel_template)
-            template.scale = mn.Vector3(0.14, 0.085, 0.14)
-            template.is_collidable = False
-            handle = f"xjtlu_visual_car_{name}"
-            templates.register_template(template, handle)
-            obj = objects.add_object_by_template_handle(handle)
-            obj.motion_type = habitat_sim.physics.MotionType.KINEMATIC
-            obj.collidable = False
-            self._visual_wheels.append((obj, mn.Vector3(*offset)))
-        self._position_visual_car(visible=False)
+        from omegaconf import DictConfig
+        from habitat.articulated_agents.robots.spot_robot import SpotRobot
 
-    def _position_visual_car(self, visible: bool) -> None:
-        """Move the car to the agent pose or park it outside the scene."""
-        if not self._visual_car_parts:
+        urdf_path = os.environ.get(
+            "XJTLU_SPOT_URDF",
+            "/home/sousuke/Desktop/habitat-lab/data/robots/hab_spot_arm/urdf/hab_spot_arm.urdf",
+        )
+        if not os.path.isfile(urdf_path):
+            raise FileNotFoundError(
+                "SpotRobot asset not found: " + urdf_path +
+                ". Download the official hab_spot_arm dataset first."
+            )
+        self._spot_robot = SpotRobot(
+            DictConfig({"articulated_agent_urdf": urdf_path}),
+            self._sim,
+            fixed_base=True,
+        )
+        self._spot_robot.reconfigure()
+        self._spot_robot.reset()
+        self._position_visual_spot(visible=False)
+
+    def _position_visual_spot(self, visible: bool) -> None:
+        """Move the articulated Spot model with the simulated agent."""
+        if self._spot_robot is None:
             return
-        rotation = mn.Quaternion.rotation(mn.Rad(self.pose.yaw), mn.Vector3.y_axis())
-        base = mn.Vector3(self.pose.x, self.pose.z, self.pose.y)
-        for obj, offset in self._visual_car_parts:
-            obj.translation = base + rotation.transform_vector(offset) if visible else mn.Vector3(0.0, -1000.0, 0.0)
-            obj.rotation = rotation
-        wheel_base_rotation = mn.Quaternion.rotation(mn.Rad(math.pi / 2.0), mn.Vector3.z_axis())
-        wheel_spin = mn.Quaternion.rotation(mn.Rad(self._wheel_spin_rad), mn.Vector3.x_axis())
-        for obj, offset in self._visual_wheels:
-            obj.translation = base + rotation.transform_vector(offset) if visible else mn.Vector3(0.0, -1000.0, 0.0)
-            obj.rotation = rotation * wheel_base_rotation * wheel_spin
+        if not visible:
+            self._spot_robot.sim_obj.translation = mn.Vector3(0.0, -1000.0, 0.0)
+            return
+        self._spot_robot.base_pos = mn.Vector3(self.pose.x, self.pose.z, self.pose.y)
+        self._spot_robot.base_rot = self.pose.yaw
+        self._spot_robot.update()
 
     def _capture_views(self) -> tuple[np.ndarray, np.ndarray]:
         # The policy front camera never sees the visual car. The second render
         # supplies only the chase-camera frame used by the video compositor.
-        self._position_visual_car(visible=False)
+        self._position_visual_spot(visible=False)
         front = self._sim.get_sensor_observations()["color_sensor"][:, :, :3].copy()
-        self._position_visual_car(visible=True)
+        self._position_visual_spot(visible=True)
         chase = self._sim.get_sensor_observations()["third_person_sensor"][:, :, :3].copy()
         return front, chase
 
     def reset(self, init_pose: Optional[SimAgentPose] = None) -> SimObservation:
         self.pose = init_pose if init_pose is not None else SimAgentPose()
         self._step_counter = 0
-        self._wheel_spin_rad = 0.0
         obs = self._sim.reset()
         if init_pose is not None and self._sim is not None:
             agent = self._sim.get_agent(0)
@@ -201,9 +176,6 @@ class HabitatSimAdapter(BaseSimAdapter):
     def step(self, linear_velocity: float, angular_velocity: float, dt: float) -> SimObservation:
         self.pose = integrate_differential_drive(self.pose, linear_velocity, angular_velocity, dt)
         self._step_counter += 1
-        # Wheel radius is 0.10 m. The sign is chosen so forward motion turns
-        # the visible wheels in the rolling direction.
-        self._wheel_spin_rad -= float(linear_velocity) * float(dt) / 0.10
 
         # Move agent in Habitat
         agent = self._sim.get_agent(0)
