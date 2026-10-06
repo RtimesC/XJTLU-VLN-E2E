@@ -80,8 +80,9 @@ class HabitatSimAdapter(BaseSimAdapter):
         third_person_spec.uuid = "third_person_sensor"
         third_person_spec.sensor_type = habitat_sim.SensorType.COLOR
         third_person_spec.resolution = [self.height, self.width]
-        third_person_spec.position = [0.0, 2.0, 3.0]
-        third_person_spec.orientation = [math.radians(-28.0), 0.0, 0.0]
+        # Close, low chase view so the rover body and wheels are legible.
+        third_person_spec.position = [0.0, 1.35, 2.15]
+        third_person_spec.orientation = [math.radians(-22.0), 0.0, 0.0]
         third_person_spec.hfov = self.hfov
 
         agent_cfg = habitat_sim.agent.AgentConfiguration()
@@ -128,7 +129,7 @@ class HabitatSimAdapter(BaseSimAdapter):
         )
         for name, offset in wheel_specs:
             template = templates.get_template_by_handle(wheel_template)
-            template.scale = mn.Vector3(0.10, 0.055, 0.10)
+            template.scale = mn.Vector3(0.14, 0.085, 0.14)
             template.is_collidable = False
             handle = f"xjtlu_visual_car_{name}"
             templates.register_template(template, handle)
