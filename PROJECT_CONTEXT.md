@@ -24,9 +24,9 @@
 | 端 | 主要工作 | 当前核对状态 |
 | --- | --- | --- |
 | Mac | 修改研究代码和文档、快速单测、Mock 几何验证。 | 主仓库 `spatial-intelligence-reasoning@f972bf6`；`habitat-lab` 为 `xjtlu-vln@71037ff`。研究探索文档仍是未跟踪文件。 |
-| Linux | 通过同一研究分支同步代码，运行 Habitat/HM3D、GPU 模型与评测，保存带版本号的结果。 | 主仓库同名分支仍在 `d8c782b`，落后 Mac 两个提交；`habitat-lab` 为 `xjtlu-vln@71037ff`。EXPRESS-Bench 为 `e8789da`，Prismatic 为 `874c5bb`，两个外部 checkout 均有本地修改或未跟踪文件。 |
+| Linux | 通过同一研究分支同步代码，运行 Habitat/HM3D、GPU 模型与评测，保存带版本号的结果。 | 自动同步启用前主仓库在 `d8c782b`；首次快进后到达 `d9d1c46`，定时器已自行触发并成功检查。`habitat-lab` 为 `xjtlu-vln@71037ff`。EXPRESS-Bench 为 `e8789da`，Prismatic 为 `874c5bb`，两个外部 checkout 均有本地修改或未跟踪文件。 |
 
-上表是启用自动同步前的 2026-10-07 状态快照。Mac 完成测试后提交并推送；Linux 用户级 `vln-research-sync.timer` 每分钟调用 [同步脚本](scripts/sync_linux_checkout.sh)，只在当前研究分支匹配、主仓库工作区干净时执行 `git pull --ff-only`。外部仓库不自动更新。Linux 实验前仍须检查 `git status`、HEAD 与定时器状态，将主仓库和外部依赖 commit 写进结果记录。自动同步不追溯改变既有实验的版本。
+上表是 2026-10-07 的部署记录，后续状态应通过 Git 和 `systemctl --user status vln-research-sync.timer` 实时核对。Mac 完成测试后提交并推送；Linux 用户级 `vln-research-sync.timer` 每分钟调用 [同步脚本](scripts/sync_linux_checkout.sh)，只在当前研究分支匹配、主仓库工作区干净时执行 `git pull --ff-only`。外部仓库不自动更新。Linux 实验前仍须检查 `git status`、HEAD 与定时器状态，将主仓库和外部依赖 commit 写进结果记录。自动同步不追溯改变既有实验的版本。
 
 ## 4. 已有能力与尚缺的证据
 
