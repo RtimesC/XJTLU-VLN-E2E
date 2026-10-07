@@ -1,0 +1,7 @@
+[Unit]
+Description=Fast-forward the XJTLU-VLN-E2E Linux checkout
+
+[Service]
+Type=oneshot
+Environment=VLN_SYNC_BRANCH=main
+ExecStart=%h/Desktop/XJTLU-VLN-E2E/scripts/sync_linux_checkout.sh

@@ -1,0 +1,11 @@
+[Unit]
+Description=Check XJTLU-VLN-E2E for pushed commits every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=15s
+Persistent=true
+Unit=vln-research-sync.service
+
+[Install]
+WantedBy=timers.target

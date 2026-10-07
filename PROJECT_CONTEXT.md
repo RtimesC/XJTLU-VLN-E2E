@@ -1,42 +1,30 @@
-# VLN 科研项目核心上下文与技术全景图
+# 项目现状：`main` 研究基座
 
-## 1. 当前阶段与核心进展
+更新日期：2026-10-07。此处描述 `main` 的代码与证据边界；具体运行结果以执行时的 commit、配置和日志为准。
 
-- **空间推理分支 (`spatial-intelligence-reasoning`)**：
-  - 已实现自车中心 8 扇区拓扑工作记忆 ([`SpatialSectorMemory`](file:///Users/sousuke/Desktop/XJTLU-VLN-E2E/src/vln_policy/vln_policy/spatial_reasoning_policy.py))。
-  - 已实现针对 0.45m 低视角的近场遮挡评估与开阔通道推断 ([`LimitedFovVisualGrounder`](file:///Users/sousuke/Desktop/XJTLU-VLN-E2E/src/vln_policy/vln_policy/spatial_reasoning_policy.py))。
-  - 已跑通完整的 `ORIENT` -> `INFERRED_EXPLORE` -> `APPROACH` -> `VERIFY` -> `STOP` 状态机闭环，并接入车载 HUD 仪表盘与 MP4 录制。
-  - 本地全部 56 个单元测试 100% 通过（`pytest`，执行耗时 ~0.3s）。
-- **仿真基座 (`habitat-lab`)**：
-  - 已在专属分支 `xjtlu-vln` 完成低底盘小车（0.45m 相机高度、0.38625m 半径、RGB-D 640x480、4x4 位姿矩阵）专属包装器 `XJTLUCarEnv` 开发与验证。
-  - 已通过真实 3D 场景 `skokloster-castle.glb` 验证。
+## 研究状态
 
-## 2. 仓库与双端架构
+研究问题尚未确定。近期讨论关注移动智能体在部分可观测环境中寻找信息、核实观察并完成语言任务，但这仍是探索方向，不能把“主动探索、更有依据地回答、固定算力预算”直接称为新的研究贡献。下一步应从公开任务和现有方法的可重复失败中确定要改善的结果，再选择方法与模型。
 
-- **`XJTLU-VLN-E2E`**：主开发仓库（算法、策略、评测）。
-- **`habitat-lab`**：外部仿真引擎（通过 `pip install -e habitat-lab` 安装在 `habitat_vln` Conda 环境中）。
-- **双端分工**：
-  - **Mac**：策略算法编写、数学推导、重构、快速单测（不运行真实 3D GPU 渲染）；
-  - **Linux**：同步 Mac 代码，拉起 NVIDIA 显卡与 Habitat 3D OpenGL 引擎跑真实室内场景仿真与视频录制。
+`spatial-intelligence-reasoning@8e69463` 保存早期 Habitat/HM3D、空间推理、3DGS/SAM2/CLIP 机制实验和研究探索记录；`3dgs-vln@38dd85c` 目前与旧 `main` 同点。这两个分支暂缓开发，未整体并入新 `main`。早期机制测试不等于论文复现、学习型 VLN 成绩或实车验证。
 
-## 3. 常用运行与测试指令
+## `main` 现有代码
 
-### 在 Mac 本地验证测试套件：
-```bash
-pytest
-# 运行极速 Mock 闭环仿真
-python3 scripts/run_spatial_reasoning_sim_loop.py
-```
+| 部分 | 当前内容 | 证据边界 |
+| --- | --- | --- |
+| `src/vln_policy` | DoorNav 与 Mock 策略。 | 规则/测试策略，不是经公开语言导航数据训练的模型。 |
+| `src/vln_sim`、`scripts/run_doornav_sim_loop.py` | Mock 场景、Habitat 适配与基础闭环入口。 | 能验证接口和简单闭环；不等于 HM3D 批量基准。 |
+| `src/vln_core` | episode、动作适配、安全过滤和基础评测。 | 可作为实验基础，尚未连接一个确定的研究任务与公开基线。 |
+| `src/vln_interfaces`、`src/vln_bringup` | 既有 ROS 2 消息、节点和启动配置。 | 不预设研究方法，也不证明底盘实车接入或停车安全。 |
 
-### 在 Linux 机器运行真实 3D Habitat 闭环仿真：
-```bash
-cd ~/Desktop/XJTLU-VLN-E2E
-conda activate habitat_vln
-git pull origin spatial-intelligence-reasoning
-python scripts/run_spatial_reasoning_sim_loop.py --scene /home/sousuke/Desktop/habitat-lab/data/scene_datasets/habitat-test-scenes/skokloster-castle.glb
-```
+2026-10-07 Mac 上 `main` 的全部快速测试为 **51 passed**。Mac 不运行真实 3D Habitat 渲染；Linux 承担 GPU/HM3D 实验。两端另有 `habitat-lab` 的 `xjtlu-vln@71037ff` checkout，底层渲染与物理由 Habitat-Sim 提供。
 
-## 4. 下一步研发候选
+## 外部候选资源
 
-1. **`3dgs-vln` 分支开发**：基于 0.45m 高度 RGB-D 和 4x4 位姿，实现三维高斯点云反投影与增量记忆场。
-2. **HM3D 数据集接入**：在 Linux 上加载真实居家户型，评测长距离语言导航任务。
+Linux 的 `EXPRESS-Bench@e8789da` 保存具身问答题目、轨迹、Fine-EQA 基线及评分代码；`prismatic-vlms@874c5bb` 是其模型依赖。二者有本地修改或未跟踪文件，不能清理或自动覆盖。题目和轨迹已准备，但官方 7B 配置在 RTX 4060 8GB 上无法完成 GPU 加载，HM3D 语义场景和正式评分条件仍有缺口；目前没有完整主动探索基线结果。它们是候选工具，不是已选题目。
+
+`0.45 m / 640×480 / 90° / 0.38625 m / 10 Hz` 是本仓库的仿真基准。实际相机尚未装车，不能将整套参数作为实车测量结果；见 [AGENTS.md](AGENTS.md)。
+
+## 双端协作
+
+Mac 在 `main` 完成和测试改动后提交、推送。Linux 的 `vln-research-sync.timer` 每分钟调用 [同步脚本](scripts/sync_linux_checkout.sh)，只在 `main` 且工作区干净时快进；外部仓库不自动更新。正式实验前仍须记录 `git rev-parse HEAD`、依赖版本和结果路径，确认 Linux 实际运行的 commit。
